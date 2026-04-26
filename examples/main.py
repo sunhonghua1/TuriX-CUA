@@ -170,6 +170,17 @@ def build_openai_compatible_llm(
         "openai_api_key": api_key,
         "temperature": temperature,
     }
+    # Claude 4+/GPT-5/o1/o3 系列在官方 API 已废除 temperature 参数，
+    # 经 zenmux 等聚合代理转发时会原样返回 400 invalid_params，
+    # 因此对这些模型必须不传 temperature。
+    _NO_TEMPERATURE_PREFIXES: tuple[str, ...] = (
+        "anthropic/claude-",
+        "openai/gpt-5",
+        "openai/o1",
+        "openai/o3",
+    )
+    if any(model_name.startswith(p) for p in _NO_TEMPERATURE_PREFIXES):
+        kwargs.pop("temperature", None)
     if base_url:
         kwargs["openai_api_base"] = base_url
     if model_kwargs:
@@ -202,6 +213,8 @@ def build_llm(cfg: dict, *, enable_thinking: bool | None = None):
             api_key=api_key,
             base_url=base_url,
             temperature=0.1,
+            supports_tool_calling=bool(cfg.get("supports_tool_calling", True)),
+            supports_response_format=bool(cfg.get("supports_response_format", True)),
             model_kwargs=model_kwargs,
             max_tokens=max_tokens,
             timeout=timeout,

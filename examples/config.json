@@ -1,41 +1,40 @@
 {
   "logging_level": "DEBUG",
   "output_dir": ".turix_tmp",
-  "brain_enable_thinking": false,
   "brain_llm": {
     "provider": "turix",
-    "model_name": "turix-brain",
-    "api_key": "your_api_key_here",
-    "base_url": "https://turixapi.io/v1" 
+    "model_name": "anthropic/claude-sonnet-4.6",
+    "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
+    "base_url": "https://zenmux.ai/api/v1",
+    "supports_response_format": false,
+    "supports_tool_calling": false
   },
-
   "actor_llm": {
-    "provider": "turix",
-    "model_name": "turix-actor",
-    "api_key": "your_api_key_here",
-    "base_url": "https://turixapi.io/v1" 
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
+    "base_url": "https://zenmux.ai/api/v1"
   },
-
   "planner_llm": {
     "provider": "turix",
-    "model_name": "turix-brain",
-    "api_key": "your_api_key_here",
-    "base_url": "https://turixapi.io/v1" 
+    "model_name": "anthropic/claude-opus-4.7",
+    "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
+    "base_url": "https://zenmux.ai/api/v1",
+    "supports_response_format": false,
+    "supports_tool_calling": false
   },
-
   "memory_llm": {
-    "provider": "turix",
-    "model_name": "turix-brain",
-    "api_key": "your_api_key_here",
-    "base_url": "https://turixapi.io/v1" 
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
+    "base_url": "https://zenmux.ai/api/v1"
   },
-
   "agent": {
-    "task": "open Chrome, go to github, and search for turix-cua in the github webpage. Enter the TuriX-CUA repository, and star it.",
-    "memory_budget_tokens": 2000,
-    "summary_memory_budget_tokens": 8000,
+    "task": "打开计算器算 17 × 23",
+    "memory_budget_tokens": 4000,
+    "summary_memory_budget_tokens": 12000,
     "use_ui": false,
-    "use_search": false,
+    "use_search": true,
     "use_skills": true,
     "skills_dir": "skills",
     "skills_max_chars": 4000,
