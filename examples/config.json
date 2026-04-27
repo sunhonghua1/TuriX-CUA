@@ -17,7 +17,7 @@
   },
   "planner_llm": {
     "provider": "turix",
-    "model_name": "anthropic/claude-sonnet-4.6",
+    "model_name": "anthropic/claude-opus-4.7",
     "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
     "base_url": "https://zenmux.ai/api/v1",
     "supports_response_format": false,
@@ -30,7 +30,7 @@
     "base_url": "https://zenmux.ai/api/v1"
   },
   "agent": {
-    "task": "打开计算器算 17 × 23",
+    "task": "打开微信给我的朋友，张颖发一句，你好，我是孙先生的助手，我在测试机器人系统，你好吗？",
     "memory_budget_tokens": 8000,
     "summary_memory_budget_tokens": 32000,
     "use_ui": false,

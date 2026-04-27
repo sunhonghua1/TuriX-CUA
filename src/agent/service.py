@@ -3,6 +3,7 @@ import asyncio
 import base64
 import io
 import json
+import difflib
 import logging
 import os
 import tempfile
@@ -298,6 +299,7 @@ class Agent:
         self._plan_history: list[dict] = []
         self._plan_dump_path: Optional[str] = os.environ.get("TURIX_PLAN_PATH")
         self._plan_status: str = "running"  # running | done | error
+        
         # ──────────────────────────────────────────────────────────────
         # Setup dynamic Action Model
         self._setup_action_models()
@@ -373,6 +375,16 @@ class Agent:
         # 这个机制专治"AI 重复同一个错误动作 N 次后死循环"的痛点。
         self._replan_count: int = 0
         self._max_replans: int = 3
+        # ──────────────────────────────────────────────────────────────
+
+        # ─── P2.2-A · 重复检测（治"伪 success 软循环"）─────────────
+        # 实战发现：AI 偶尔会在错误方向上反复尝试同一动作，但每隔几步会
+        # 偶发一次 success 把 consecutive_failures 重置——P2.1 永远不触发。
+        # 解药：维护最近 N 步 next_goal 的滑动窗口，文本相似度高时强制触发自愈。
+        self._goal_window: list[str] = []
+        self._repetition_window_size: int = 5      # 连续 5 步进入比较
+        self._repetition_pair_threshold: float = 0.7  # 单 pair 相似度阈值
+        self._repetition_pair_ratio: float = 0.6   # 窗口里 ≥60% pair 相似才触发
         # ──────────────────────────────────────────────────────────────
         self.brain_memory = ''
         self.summary_memory = ''
@@ -954,6 +966,32 @@ class Agent:
             self._dump_plan_history()
             # ──────────────────────────────────────────────────────
 
+            # ─── P2.2-A · 重复检测：揪出"伪 success 软循环" ─────────
+            # 把当前 next_goal push 进滑动窗口，超阈值时强制触发 self-heal。
+            # 注意：只在主循环还没决定 break 时检测；触发后清空窗口避免连环。
+            if self.next_goal:
+                self._goal_window.append(self.next_goal)
+                if len(self._goal_window) > self._repetition_window_size:
+                    self._goal_window.pop(0)
+                if self._check_goal_repetition():
+                    logger.warning(
+                        f'🔄 Repetition detected: last {self._repetition_window_size} goals are '
+                        f'too similar (≥{int(self._repetition_pair_ratio*100)}% pairs above '
+                        f'{self._repetition_pair_threshold:.2f} similarity). '
+                        f'Forcing self-heal regardless of step_evaluate signal.'
+                    )
+                    # 在 timeline 插入醒目记号，让 dashboard 能讲清楚原因
+                    self._plan_history.append({
+                        "step": step_id,
+                        "goal": "🔄 检测到目标重复，强制触发自愈",
+                        "status": "repeat_detected",
+                    })
+                    self._dump_plan_history()
+                    # 拉满 consecutive_failures，主循环下一轮 _too_many_failures() 即触发 self-heal
+                    self.consecutive_failures = self.max_failures
+                    self._goal_window.clear()
+            # ──────────────────────────────────────────────────────
+
             # Finalize the previous step's memory line based on this response's evaluation signal.
             # Keep step N in pending_recent_memory until step (N+1) arrives, so it won't be summarized away.
             if prev_step_id >= 1:
@@ -1435,13 +1473,88 @@ class Agent:
             return True
         return False
 
+    # ─── P2.2-A · 重复检测 helpers ───────────────────────────────────
+    @staticmethod
+    def _normalize_goal(goal: str) -> str:
+        """规范化 goal 文本：lowercase + 压缩空白 + 截短，提升相似度比较稳定性。"""
+        if not goal:
+            return ""
+        text = goal.lower()
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:200]  # 长 goal 截断，避免长尾后缀主导相似度
+
+    def _check_goal_repetition(self) -> bool:
+        """
+        判断 _goal_window 里是否陷入"伪 success 软循环"。
+
+        算法：
+          1. 窗口未满 N 个 → False
+          2. 窗口里两两计算相似度（SequenceMatcher.ratio）
+          3. 相似 pair 占比 ≥ _repetition_pair_ratio → True
+
+        返回 True 时，调用方应：
+          - 强制 self.consecutive_failures = self.max_failures，让主循环触发 self-heal
+          - 清空窗口，避免下一步又立刻命中
+        """
+        window = self._goal_window
+        if len(window) < self._repetition_window_size:
+            return False
+
+        norms = [self._normalize_goal(g) for g in window]
+        # 全空 goal 不算重复
+        if not any(norms):
+            return False
+
+        total_pairs = 0
+        similar_pairs = 0
+        for i in range(len(norms)):
+            for j in range(i + 1, len(norms)):
+                total_pairs += 1
+                if difflib.SequenceMatcher(None, norms[i], norms[j]).ratio() >= self._repetition_pair_threshold:
+                    similar_pairs += 1
+        if total_pairs == 0:
+            return False
+        return (similar_pairs / total_pairs) >= self._repetition_pair_ratio
+    # ─────────────────────────────────────────────────────────────────
+
+    # P2.1.1 · 瞬时网络/代理异常名单：撞到这些类时不消耗 _replan_count，可重试
+    _TRANSIENT_EXC_NAMES: frozenset[str] = frozenset({
+        "ProxyError", "TimeoutException", "ConnectError", "ConnectTimeout",
+        "ReadTimeout", "WriteTimeout", "PoolTimeout", "RemoteProtocolError",
+        "APITimeoutError", "APIConnectionError", "APIStatusError",
+        "RateLimitError", "InternalServerError", "ServiceUnavailableError",
+    })
+    _TRANSIENT_HTTP_CODES: tuple[str, ...] = ("502", "503", "504", "429")
+
+    @classmethod
+    def _is_transient_error(cls, exc: BaseException) -> bool:
+        """
+        判断异常是不是瞬时性故障（网络/代理/上游过载）——这种异常不该消耗
+        宝贵的 replan 次数，应该简单重试就能恢复。
+        """
+        if isinstance(exc, (asyncio.TimeoutError, ConnectionError)):
+            return True
+        if type(exc).__name__ in cls._TRANSIENT_EXC_NAMES:
+            return True
+        msg = str(exc).lower()
+        if any(code in msg for code in cls._TRANSIENT_HTTP_CODES):
+            return True
+        if "timeout" in msg or "connection" in msg or "proxy" in msg:
+            return True
+        return False
+
     async def _attempt_self_heal(self) -> bool:
         """
         P2.1 失败自愈：连续失败到上限时，调用 planner 重新规划。
 
+        P2.1.1 加固：区分瞬时网络异常 vs 业务异常——
+        - 瞬时异常（503/timeout/proxy）：内部最多重试 2 次，最终失败时
+          不消耗 _replan_count，把宝贵的重规划机会留给真正能解决问题的场景。
+        - 业务异常（planner refuse/JSON 解析炸/其它）：消耗 _replan_count。
+
         Returns:
             True  — 重规划成功，主循环应 continue 继续尝试
-            False — 重规划次数已用完 / planner 不可用，主循环应 break
+            False — 重规划次数已用完 / planner 不可用 / 业务异常，主循环应 break
         """
         if not self.planner_llm:
             logger.warning('🔁 Self-heal skipped: planner_llm is not configured (use_plan=false)')
@@ -1468,11 +1581,40 @@ class Agent:
         self._plan_history.append(replan_entry)
         self._dump_plan_history()
 
-        try:
-            await self.edit()
-        except Exception:
-            logger.exception('🔁 Self-heal failed: planner.edit_task raised')
+        # P2.1.1 · 网络抖动兜底：瞬时异常最多重试 2 次（含原始尝试共 3 次）
+        max_attempts = 3
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self.edit()
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if not self._is_transient_error(exc):
+                    # 业务异常：直接放弃，消耗 _replan_count
+                    logger.exception('🔁 Self-heal failed: planner.edit_task raised (non-transient)')
+                    replan_entry["status"] = "replan_failed"
+                    self._dump_plan_history()
+                    return False
+                # 瞬时异常：sleep 后重试
+                if attempt < max_attempts:
+                    backoff = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                    logger.warning(
+                        f'🔁 Self-heal transient error ({type(exc).__name__}): '
+                        f'retry {attempt}/{max_attempts - 1} after {backoff}s — {exc}'
+                    )
+                    await asyncio.sleep(backoff)
+
+        if last_exc is not None:
+            # 重试用完仍是瞬时异常：不该浪费 replan 次数，回退计数并退出
+            logger.error(
+                f'🔁 Self-heal aborted after {max_attempts} transient retries; '
+                f'restoring replan budget so future attempts still have ammo.'
+            )
+            self._replan_count -= 1  # 回退：本次没"实际用掉"业务级重规划
             replan_entry["status"] = "replan_failed"
+            replan_entry["goal"] = f"🔁 重新规划失败（网络瞬时故障 × {max_attempts}）"
             self._dump_plan_history()
             return False
 
