@@ -211,38 +211,45 @@ class Controller:
 		async def run_apple_script(script: str):
 			logger.debug(f'Running AppleScript: {script}')
 			
-			# Wrap the original script in error handling and return value logic
-			wrapped_script = f'''
-				try
-					{script}
-					return "OK"
-				on error errMsg
-					return "ERROR: " & errMsg
-				end try
-			'''
-			
+			# Use NSAppleScript via PyObjC so the script runs inside the Antigravity
+			# process, which already has Accessibility permission granted.
+			# Spawning a child `osascript` process loses that permission on macOS.
 			try:
-				result = subprocess.run(
-					['osascript', '-e', wrapped_script],
-					capture_output=True,
-					text=True
-				)
+				from Foundation import NSAppleScript, NSAppleEventDescriptor
 				
-				if result.returncode == 0:
-					output = result.stdout.strip()
-					if output == "OK":
-						return ActionResult(extracted_content="Success")
-					elif output.startswith("ERROR:"):
-						error_msg = output
+				wrapped_script = f'''
+					try
+						{script}
+						return "OK"
+					on error errMsg
+						return "ERROR: " & errMsg
+					end try
+				'''
+				
+				as_obj = NSAppleScript.alloc().initWithSource_(wrapped_script)
+				error_info = None
+				result_desc = as_obj.executeAndReturnError_(None)
+				
+				if result_desc is not None:
+					output = result_desc.stringValue() or "OK"
+					if output.startswith("ERROR:"):
+						logger.error(output)
+						return ActionResult(extracted_content=output, error=output)
+					return ActionResult(extracted_content=output)
+				else:
+					# Fall back to subprocess if NSAppleScript fails entirely
+					result = subprocess.run(
+						['osascript', '-e', wrapped_script],
+						capture_output=True,
+						text=True
+					)
+					if result.returncode == 0:
+						return ActionResult(extracted_content=result.stdout.strip() or "OK")
+					else:
+						error_msg = f"AppleScript failed: {result.stderr.strip()}"
 						logger.error(error_msg)
 						return ActionResult(extracted_content=error_msg, error=error_msg)
-					else:
-						return ActionResult(extracted_content=output)
-				else:
-					error_msg = f"AppleScript failed with return code {result.returncode}: {result.stderr.strip()}"
-					logger.error(error_msg)
-					return ActionResult(extracted_content=error_msg, error=error_msg)
-					
+						
 			except Exception as e:
 				error_msg = f"Failed to run AppleScript: {str(e)}"
 				logger.error(error_msg)
