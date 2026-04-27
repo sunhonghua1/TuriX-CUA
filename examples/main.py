@@ -361,12 +361,25 @@ def main(config_path: str = "config.json"):
         planner_llm = build_llm(cfg["planner_llm"], enable_thinking=True)
     else:
         planner_llm = None
+
+    # P2.2-B · Verification Critic（可选第 5 个 LLM 角色）
+    # 配置缺省时 fallback 到 planner_llm（Opus 4.7），允许独立配置以省成本。
+    use_critic = bool(cfg.get("agent", {}).get("use_critic", False))
+    critic_cfg = cfg.get("critic_llm")
+    if use_critic and critic_cfg:
+        critic_llm = build_llm(critic_cfg, enable_thinking=False)
+    elif use_critic:
+        critic_llm = planner_llm  # fallback：复用 planner_llm
+    else:
+        critic_llm = None
+
     log.info(
-        "Thinking config => brain=%s, actor=%s, memory=%s, planner=%s",
+        "Thinking config => brain=%s, actor=%s, memory=%s, planner=%s, critic=%s",
         brain_enable_thinking,
         False,
         False,
         bool(use_plan),
+        bool(use_critic and critic_llm is not None),
     )
     agent_cfg = cfg["agent"]
     skills_dir = agent_cfg.get("skills_dir")
@@ -404,6 +417,7 @@ def main(config_path: str = "config.json"):
         actor_llm               = actor_llm,
         planner_llm             = planner_llm,
         memory_llm              = memory_llm,
+        critic_llm              = critic_llm,
         memory_budget           = memory_budget_tokens,
         summary_memory_budget   = summary_memory_budget_tokens,
         controller              = controller,

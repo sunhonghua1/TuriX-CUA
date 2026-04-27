@@ -29,6 +29,14 @@
     "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
     "base_url": "https://zenmux.ai/api/v1"
   },
+  "critic_llm": {
+    "provider": "turix",
+    "model_name": "anthropic/claude-sonnet-4.6",
+    "api_key": "sk-ai-v1-ae67cacf871b7f17108726b255edc6485afa2e099b8d6cc26e3801068f92813c",
+    "base_url": "https://zenmux.ai/api/v1",
+    "supports_response_format": false,
+    "supports_tool_calling": false
+  },
   "agent": {
     "task": "打开微信给我的朋友，张颖发一句，你好，我是孙先生的助手，我在测试机器人系统，你好吗？",
     "memory_budget_tokens": 8000,
@@ -39,6 +47,7 @@
     "skills_dir": "/Users/github/TuriX-CUA/.agent/skills",
     "skills_max_chars": 4000,
     "use_plan": true,
+    "use_critic": true,
     "max_actions_per_step": 5,
     "max_steps": 100,
     "force_stop_hotkey": "command+shift+2",

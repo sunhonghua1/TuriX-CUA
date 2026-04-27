@@ -35,6 +35,7 @@ from src.agent.prompts import (
     ActorPrompt_turix,
     MemoryPrompt,
     PlannerPrompt,
+    CriticPrompt,  # P2.2-B · Verification Critic 的 system prompt
 )
 from src.agent.views import (
     ActionResult,
@@ -195,6 +196,7 @@ class Agent:
         skills_dir: Optional[str] = None,
         skills_max_chars: int = 4000,
         planner_llm: Optional[BaseChatModel] = None,
+        critic_llm: Optional[BaseChatModel] = None,
         save_planner_conversation_path: Optional[str] = None,
         save_planner_conversation_path_encoding: Optional[str] = "utf-8",
         save_brain_conversation_path: Optional[str] = None,
@@ -385,6 +387,15 @@ class Agent:
         self._repetition_window_size: int = 5      # 连续 5 步进入比较
         self._repetition_pair_threshold: float = 0.7  # 单 pair 相似度阈值
         self._repetition_pair_ratio: float = 0.6   # 窗口里 ≥60% pair 相似才触发
+        # ──────────────────────────────────────────────────────────────
+
+        # ─── P2.2-B · Verification Critic（独立第二只眼）─────────────
+        # 第 5 个 LLM 角色：拿前后截图 + brain 的 next_goal + step_evaluate，
+        # 独立判断"任务真的推进了吗"。专治 brain 自欺欺人的 success。
+        # 默认未启用（critic_llm=None）；启用后每 N 步触发一次（成本可控）。
+        self.critic_llm = critic_llm
+        self._critic_check_interval: int = 3  # 每 N 步触发一次 critic
+        self._critic_overrule_count: int = 0  # 已被 critic 推翻的次数（用于 timeline 展示）
         # ──────────────────────────────────────────────────────────────
         self.brain_memory = ''
         self.summary_memory = ''
@@ -992,6 +1003,35 @@ class Agent:
                     self._goal_window.clear()
             # ──────────────────────────────────────────────────────
 
+            # ─── P2.2-B · Verification Critic（独立第二只眼）─────────
+            # 每 _critic_check_interval 步触发一次（可控成本）。
+            # Critic 推翻 brain 时：no_progress → consecutive_failures+=1；
+            # wrong_direction → 直接拉满计数触发 self-heal。
+            if self.critic_llm is not None and step_id % self._critic_check_interval == 0:
+                verdict_data = await self._verification_critic_check(step_id)
+                if verdict_data is not None:
+                    verdict = verdict_data.get("verdict", "")
+                    reasoning = verdict_data.get("reasoning", "")
+                    logger.info(f"🧐 Critic verdict for step {step_id}: {verdict} — {reasoning}")
+                    if verdict in {"no_progress", "wrong_direction"}:
+                        self._critic_overrule_count += 1
+                        self._plan_history.append({
+                            "step": step_id,
+                            "goal": f"🧐 Critic 否决（{verdict}）：{reasoning[:120]}",
+                            "status": "critic_overruled",
+                        })
+                        self._dump_plan_history()
+                        if verdict == "wrong_direction":
+                            logger.warning(
+                                f"🧐 Critic detected wrong_direction at step {step_id}; "
+                                "forcing self-heal."
+                            )
+                            self.consecutive_failures = self.max_failures
+                            self._goal_window.clear()
+                        else:  # no_progress
+                            self.consecutive_failures += 1
+            # ──────────────────────────────────────────────────────
+
             # Finalize the previous step's memory line based on this response's evaluation signal.
             # Keep step N in pending_recent_memory until step (N+1) arrives, so it won't be summarized away.
             if prev_step_id >= 1:
@@ -1472,6 +1512,63 @@ class Agent:
             logger.error(f'❌ Stopping due to {self.max_failures} consecutive failures')
             return True
         return False
+
+    # ─── P2.2-B · Verification Critic ─────────────────────────────────
+    async def _verification_critic_check(self, step_id: int) -> Optional[dict]:
+        """
+        独立 LLM 复核 brain 的 step_evaluate：拿前后截图 + 任务原文 + brain 的
+        next_goal/evaluate，输出 verdict ∈ {progress, no_progress, wrong_direction}。
+
+        返回 None 表示 critic 未启用 / 截图缺失 / 调用失败 — 调用方应忽略。
+        否则返回 dict {"verdict": str, "reasoning": str}。
+        """
+        if self.critic_llm is None:
+            return None
+        # 必须有"前后两张截图"才有意义
+        before = getattr(self, "previous_screenshot", None)
+        after = getattr(self, "screenshot_annotated", None) or getattr(self, "screenshot", None)
+        if before is None or after is None:
+            return None
+
+        try:
+            from langchain_core.messages import HumanMessage
+            user_text = (
+                f"USER TASK: {self.original_task}\n\n"
+                f"BRAIN'S STATED GOAL FOR THIS STEP (step {step_id}):\n{self.next_goal}\n\n"
+                f"BRAIN'S SELF-EVALUATION: {self.current_state.get('step_evaluate', 'unknown')}\n\n"
+                f"Compare the BEFORE and AFTER screenshots and decide your verdict."
+            )
+            messages = [
+                CriticPrompt().get_system_message(),
+                HumanMessage(content=[
+                    {"type": "text", "text": user_text},
+                    {"type": "text", "text": "[BEFORE screenshot]"},
+                    {"type": "image_url", "image_url": {"url": screenshot_to_dataurl(before)}},
+                    {"type": "text", "text": "[AFTER screenshot]"},
+                    {"type": "image_url", "image_url": {"url": screenshot_to_dataurl(after)}},
+                ]),
+            ]
+            response = await self.critic_llm.ainvoke(messages)
+            raw = str(response.content).strip()
+
+            # 容忍 markdown 代码块包裹（Haiku 风格）
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", raw, flags=re.MULTILINE).strip()
+
+            verdict_data = json.loads(raw)
+            verdict = str(verdict_data.get("verdict", "")).strip().lower()
+            if verdict not in {"progress", "no_progress", "wrong_direction"}:
+                logger.warning(f"🧐 Critic returned unknown verdict: {verdict!r} — ignoring")
+                return None
+            verdict_data["verdict"] = verdict
+            return verdict_data
+        except json.JSONDecodeError as exc:
+            logger.warning(f"🧐 Critic JSON parse failed: {exc}; raw={raw[:200]!r}")
+            return None
+        except Exception:
+            logger.exception("🧐 Critic invocation crashed (non-fatal, ignoring)")
+            return None
+    # ─────────────────────────────────────────────────────────────────
 
     # ─── P2.2-A · 重复检测 helpers ───────────────────────────────────
     @staticmethod
