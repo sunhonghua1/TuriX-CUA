@@ -1,1 +1,17 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local artifacts
+.agent/
 .turix_tmp/
+*.bak.*
+test_*.py
+
+# Env
+.env
+.venv/
