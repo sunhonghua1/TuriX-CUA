@@ -20,7 +20,7 @@ def has_screen_capture_permission() -> bool:
     CoreGraphics = ctypes.cdll.LoadLibrary(
         "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
     )
-    return bool(CoreGraphics.CGPreflightScreenCaptureAccess())
+    return bool(CoreGraphics.CGRequestScreenCaptureAccess())
 
 LOG_LEVEL_MAP = {
     "CRITICAL": logging.CRITICAL,

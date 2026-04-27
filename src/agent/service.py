@@ -290,6 +290,15 @@ class Agent:
         self.last_goal = None
         self.brain_context = OrderedDict()
         self.status = "success"
+
+        # ─── P1.A · TodoWrite 风格任务时间线 ────────────────────────────
+        # 每个 brain step 完成后追加一条 entry，让 dashboard 实时显示
+        # "已完成/进行中/失败" 的步骤清单。dump 路径由父进程通过
+        # TURIX_PLAN_PATH 环境变量注入；未注入则跳过（独立运行模式）。
+        self._plan_history: list[dict] = []
+        self._plan_dump_path: Optional[str] = os.environ.get("TURIX_PLAN_PATH")
+        self._plan_status: str = "running"  # running | done | error
+        # ──────────────────────────────────────────────────────────────
         # Setup dynamic Action Model
         self._setup_action_models()
         # self._set_model_names()
@@ -357,6 +366,14 @@ class Agent:
         self.retry_delay = retry_delay
         self._paused = False
         self._stopped = False
+
+        # ─── P2.1 · 失败自愈循环 ────────────────────────────────────
+        # 当 consecutive_failures 达到 max_failures 时，不直接 break，
+        # 而是先尝试调用 planner 重新规划。重规划次数也用完时才真正退出。
+        # 这个机制专治"AI 重复同一个错误动作 N 次后死循环"的痛点。
+        self._replan_count: int = 0
+        self._max_replans: int = 3
+        # ──────────────────────────────────────────────────────────────
         self.brain_memory = ''
         self.summary_memory = ''
         self.recent_memory = ''
@@ -392,6 +409,35 @@ class Agent:
         """Setup dynamic action models from controller's registry"""
         self.ActionModel = self.controller.registry.create_action_model()
         self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+
+    # ─── Plan timeline helpers ────────────────────────────────────
+    def _dump_plan_history(self) -> None:
+        """Atomically write plan timeline to the shared JSON file."""
+        if not self._plan_dump_path:
+            return
+        payload = {
+            "task": self.original_task,
+            "status": self._plan_status,
+            "steps": self._plan_history,
+        }
+        tmp_path = self._plan_dump_path + ".tmp"
+        try:
+            os.makedirs(os.path.dirname(self._plan_dump_path), exist_ok=True)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, self._plan_dump_path)
+        except Exception:
+            logger.debug("Failed to dump plan timeline", exc_info=True)
+
+    def _update_plan_step(self, step_id: int, goal: str, status: str) -> None:
+        """Add or update a step entry in the plan history."""
+        for entry in self._plan_history:
+            if entry["step"] == step_id:
+                entry["goal"] = goal
+                entry["status"] = status
+                return
+        self._plan_history.append({"step": step_id, "goal": goal, "status": status})
+    # ──────────────────────────────────────────────────────────────
 
     def get_last_pid(self) -> Optional[int]:
         latest_pid = self.last_pid
@@ -889,6 +935,25 @@ class Agent:
             self.brain_thought = parsed["analysis"]
             self.current_state = parsed['current_state']
 
+            # ─── Plan timeline: record step progress ──────────────
+            raw_eval = str(self.current_state.get("step_evaluate", "")).lower()
+            if prev_step_id >= 1:
+                if "success" in raw_eval:
+                    prev_status = "success"
+                elif "fail" in raw_eval:
+                    prev_status = "failed"
+                else:
+                    prev_status = "pending"
+                # Update previous step's final status
+                for entry in self._plan_history:
+                    if entry["step"] == prev_step_id:
+                        entry["status"] = prev_status
+                        break
+            # Add current step as in_progress
+            self._update_plan_step(step_id, self.next_goal, "in_progress")
+            self._dump_plan_history()
+            # ──────────────────────────────────────────────────────
+
             # Finalize the previous step's memory line based on this response's evaluation signal.
             # Keep step N in pending_recent_memory until step (N+1) arrives, so it won't be summarized away.
             if prev_step_id >= 1:
@@ -1236,7 +1301,11 @@ class Agent:
                     await self.load_memory()
                     self.resume = False
                 if self._too_many_failures():
-                    break
+                    # P2.1 · 失败自愈：先尝试让 planner 重新规划，
+                    # 重规划次数用完后才真正退出主循环
+                    if not await self._attempt_self_heal():
+                        break
+                    continue  # 自愈成功，跳过本步等待，下一轮重新开始
                 if not await self._handle_control_flags():
                     break
 
@@ -1245,12 +1314,24 @@ class Agent:
 
                 if self.history.is_done():
                     logger.info('✅ Task completed successfully')
+                    # Finalize plan timeline
+                    for entry in self._plan_history:
+                        if entry["status"] == "in_progress":
+                            entry["status"] = "success"
+                    self._plan_status = "done"
+                    self._dump_plan_history()
                     if self.register_done_callback:
                         self.register_done_callback(self.history)
                     break
                 await asyncio.sleep(2)  # Wait before next step
             else:
                 logger.info('❌ Failed to complete task in maximum steps')
+                # Finalize plan timeline on failure
+                for entry in self._plan_history:
+                    if entry["status"] == "in_progress":
+                        entry["status"] = "failed"
+                self._plan_status = "error"
+                self._dump_plan_history()
 
             return self.history
         except Exception:
@@ -1353,6 +1434,54 @@ class Agent:
             logger.error(f'❌ Stopping due to {self.max_failures} consecutive failures')
             return True
         return False
+
+    async def _attempt_self_heal(self) -> bool:
+        """
+        P2.1 失败自愈：连续失败到上限时，调用 planner 重新规划。
+
+        Returns:
+            True  — 重规划成功，主循环应 continue 继续尝试
+            False — 重规划次数已用完 / planner 不可用，主循环应 break
+        """
+        if not self.planner_llm:
+            logger.warning('🔁 Self-heal skipped: planner_llm is not configured (use_plan=false)')
+            return False
+
+        if self._replan_count >= self._max_replans:
+            logger.error(
+                f'🔁 Self-heal exhausted: replanned {self._replan_count}/{self._max_replans} times, giving up'
+            )
+            return False
+
+        self._replan_count += 1
+        logger.info(
+            f'🔁 Self-heal triggered ({self._replan_count}/{self._max_replans}): '
+            f'consecutive_failures={self.consecutive_failures}, asking planner to rethink…'
+        )
+
+        # 在时间线上插入一条"重规划"特殊 entry，让 dashboard 实时展示
+        replan_entry = {
+            "step": self.n_steps,
+            "goal": f"🔁 重新规划（第 {self._replan_count}/{self._max_replans} 次）",
+            "status": "replan",
+        }
+        self._plan_history.append(replan_entry)
+        self._dump_plan_history()
+
+        try:
+            await self.edit()
+        except Exception:
+            logger.exception('🔁 Self-heal failed: planner.edit_task raised')
+            replan_entry["status"] = "replan_failed"
+            self._dump_plan_history()
+            return False
+
+        # 重规划成功：重置失败计数，让主循环继续
+        self.consecutive_failures = 0
+        replan_entry["status"] = "replan_done"
+        self._dump_plan_history()
+        logger.info('🔁 Self-heal completed, resuming main loop')
+        return True
 
     async def _handle_control_flags(self) -> bool:
         if self._stopped:
