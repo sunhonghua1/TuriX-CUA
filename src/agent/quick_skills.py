@@ -79,23 +79,23 @@ def _build_calculator_actions(task: str) -> ActionList:
     expr = _extract_math_expr(task)
     if not expr:
         return []
-    # Calculator.app 不接受 input_text（bulk typing），必须逐键按。
-    # open_app 现在已经内置了等待 app 成为前台的逻辑（最长 5s），
-    # 所以只需一个 wait 做缓冲即可。
-    actions: ActionList = [
+    # Calculator.app 需要：
+    # 1. 先 open_app 启动（内置等前台逻辑）
+    # 2. 用 AppleScript 强制激活，防止 LittleFox 浏览器抢焦点
+    # 3. 用 input_text 逐字符通过 Quartz Unicode 事件发送（比 Hotkey 更可靠）
+    return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
+        {"run_apple_script": {"script": 'tell application "Calculator" to activate'}},
+        {"wait": {}},
+        {"input_text": {"text": expr}},
+        {"Hotkey": {"key": "enter"}},
+        {"record_info": {
+            "text": f"Calculator opened and computed: {expr}",
+            "file_name": "calculator_result.txt",
+        }},
+        {"done": {}},
     ]
-    # 逐字符发送按键
-    for ch in expr:
-        actions.append({"Hotkey": {"key": ch}})
-    actions.append({"Hotkey": {"key": "enter"}})
-    actions.append({"record_info": {
-        "text": f"Calculator opened and computed: {expr}",
-        "file_name": "calculator_result.txt",
-    }})
-    actions.append({"done": {}})
-    return actions
 
 
 # ─── Skill 2：仅打开某个 App（如"打开 Notion"）─────────────────────
