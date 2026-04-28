@@ -12,6 +12,10 @@ class DoneAction(BaseModel):
 class InputTextAction(BaseModel):
 	text: str
 
+class TypeKeysAction(BaseModel):
+	text: str
+	app_name: Optional[str] = None
+
 class RecordAction(BaseModel):
 	text: str = Field(..., description="information you need to record")
 	file_name: str = Field(..., description="filename summary for the recorded info")

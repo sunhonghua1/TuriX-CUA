@@ -82,11 +82,11 @@ def _build_calculator_actions(task: str) -> ActionList:
     # Calculator.app 不接受 input_text (Quartz unicode events) 也不接受 pyautogui.press。
     # AppleScript System Events 需要 Automation 权限（子进程拿不到）。
     # 最终方案：type_keys 用真实的 macOS key code (CGEvent) 发送按键，
-    # 只需要 Accessibility 权限（已有），完美兼容 Calculator。
+    # 并且传入 app_name="Calculator" 让底层强制抢回 Calculator 的焦点！
     return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
-        {"type_keys": {"text": expr}},
+        {"type_keys": {"text": expr, "app_name": "Calculator"}},
         {"Hotkey": {"key": "enter"}},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",

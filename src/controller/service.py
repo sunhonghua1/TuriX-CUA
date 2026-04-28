@@ -8,6 +8,7 @@ from src.agent.views import ActionModel, ActionResult
 from src.controller.registry.service import Registry
 from src.controller.views import (
 	InputTextAction,
+	TypeKeysAction,
 	OpenAppAction,
 	AppleScriptAction,
 	PressAction,
@@ -426,28 +427,31 @@ class Controller:
 
 		@self.registry.action(
 			'Type characters using native key codes (works with Calculator)',
-			param_model=InputTextAction,
+			param_model=TypeKeysAction,
 		)
-		async def type_keys(text: str):
+		async def type_keys(text: str, app_name: Optional[str] = None):
 			"""Send each character as a native macOS key code via CGEvent.
 			Force-activates the target app (non-browser) before typing."""
-			logger.info(f'Typing via keycodes: {text}')
+			logger.info(f'Typing via keycodes: {text} (target app: {app_name})')
 			
-			# The browser steals focus during multi_act sleeps.
-			# We need to find and re-activate the actual target app.
 			workspace = Cocoa.NSWorkspace.sharedWorkspace()
-			browser_names = {'Google Chrome', 'Safari', 'Firefox', 'Arc', 'Chromium', 'Brave Browser'}
-			
-			# Strategy: find the non-browser app that was most recently activated
 			target = None
-			for app in workspace.runningApplications():
-				name = app.localizedName() or ''
-				if name and name not in browser_names and app.activationPolicy() == Cocoa.NSApplicationActivationPolicyRegular:
-					# Pick the first regular (non-background) non-browser app we find
-					# that isn't our own agent process
-					if name not in ('Terminal', 'Warp', 'Antigravity', 'iTerm2', 'Code'):
+			
+			if app_name:
+				# Target specifically requested app
+				for app in workspace.runningApplications():
+					if app.localizedName() and app_name.lower() in app.localizedName().lower():
 						target = app
 						break
+			else:
+				# Fallback: Find most recently activated non-browser app
+				browser_names = {'Google Chrome', 'Safari', 'Firefox', 'Arc', 'Chromium', 'Brave Browser'}
+				for app in workspace.runningApplications():
+					name = app.localizedName() or ''
+					if name and name not in browser_names and app.activationPolicy() == Cocoa.NSApplicationActivationPolicyRegular:
+						if name not in ('Terminal', 'Warp', 'Antigravity', 'iTerm2', 'Code'):
+							target = app
+							break
 			
 			if target:
 				target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
