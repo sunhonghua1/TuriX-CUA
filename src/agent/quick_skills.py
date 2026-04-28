@@ -79,24 +79,15 @@ def _build_calculator_actions(task: str) -> ActionList:
     expr = _extract_math_expr(task)
     if not expr:
         return []
-    # Calculator.app 既不接受 input_text（Quartz Unicode 事件）也不接受 pyautogui.press。
-    # 唯一可靠的方式：用一条 AppleScript 原子操作完成 激活 + 键盘输入 + 回车。
-    # 这样不会被 LittleFox 浏览器抢走焦点。
-    script = (
-        f'tell application "Calculator" to activate\n'
-        f'delay 1\n'
-        f'tell application "System Events"\n'
-        f'    tell process "Calculator"\n'
-        f'        keystroke "{expr}"\n'
-        f'        delay 0.3\n'
-        f'        keystroke return\n'
-        f'    end tell\n'
-        f'end tell'
-    )
+    # Calculator.app 不接受 input_text (Quartz unicode events) 也不接受 pyautogui.press。
+    # AppleScript System Events 需要 Automation 权限（子进程拿不到）。
+    # 最终方案：type_keys 用真实的 macOS key code (CGEvent) 发送按键，
+    # 只需要 Accessibility 权限（已有），完美兼容 Calculator。
     return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
-        {"run_apple_script": {"script": script}},
+        {"type_keys": {"text": expr}},
+        {"Hotkey": {"key": "enter"}},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",
             "file_name": "calculator_result.txt",

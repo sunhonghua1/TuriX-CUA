@@ -269,6 +269,61 @@ async def press(key: str = "enter") -> bool:
     logger.info(f"✅ Successfully pressed key: {key}")
     return True
 
+
+# macOS virtual key code mapping for Calculator-compatible key presses
+_CHAR_TO_KEYCODE: dict[str, tuple[int, bool]] = {
+    # (keycode, needs_shift)
+    '0': (29, False), '1': (18, False), '2': (19, False), '3': (20, False),
+    '4': (21, False), '5': (23, False), '6': (22, False), '7': (26, False),
+    '8': (28, False), '9': (25, False),
+    '+': (24, True), '-': (27, False), '*': (28, True), '/': (44, False),
+    '=': (24, False), '.': (47, False),
+    '\n': (36, False), 'enter': (36, False), 'return': (36, False),
+}
+
+
+async def press_keycode(char: str) -> bool:
+    """
+    Send a real macOS key code via CGEvent. Works with Calculator.app
+    and other apps that ignore unicode string events.
+    Only needs Accessibility permission, NOT Automation permission.
+    """
+    lookup = _CHAR_TO_KEYCODE.get(char.lower() if len(char) > 1 else char)
+    if lookup is None:
+        # Fallback to pyautogui for unknown keys
+        pyautogui.press(char)
+        logger.info(f"✅ pressed key (pyautogui fallback): {char}")
+        return True
+    
+    keycode, needs_shift = lookup
+    
+    if needs_shift:
+        # Press shift down
+        shift_down = Quartz.CGEventCreateKeyboardEvent(None, 56, True)
+        Quartz.CGEventPost(Quartz.kCGSessionEventTap, shift_down)
+        await asyncio.sleep(0.02)
+    
+    # Key down
+    key_down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+    if needs_shift:
+        Quartz.CGEventSetFlags(key_down, Quartz.kCGEventFlagMaskShift)
+    Quartz.CGEventPost(Quartz.kCGSessionEventTap, key_down)
+    await asyncio.sleep(0.02)
+    
+    # Key up
+    key_up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
+    Quartz.CGEventPost(Quartz.kCGSessionEventTap, key_up)
+    await asyncio.sleep(0.02)
+    
+    if needs_shift:
+        # Release shift
+        shift_up = Quartz.CGEventCreateKeyboardEvent(None, 56, False)
+        Quartz.CGEventPost(Quartz.kCGSessionEventTap, shift_up)
+        await asyncio.sleep(0.02)
+    
+    logger.info(f"✅ pressed keycode {keycode} for '{char}'")
+    return True
+
 async def _unicode_event(char: str, down: bool):
     units = len(char.encode("utf-16-le")) // 2      
 

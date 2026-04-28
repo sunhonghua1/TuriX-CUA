@@ -22,7 +22,7 @@ from src.controller.views import (
 )
 
 
-from src.mac.actions import type_into, press, _scroll_invisible_at_position, move_to, left_click_pixel, right_click_pixel, press_combination, drag_pixel
+from src.mac.actions import type_into, press, press_keycode, _scroll_invisible_at_position, move_to, left_click_pixel, right_click_pixel, press_combination, drag_pixel
 from src.mac.tree import MacUITreeBuilder
 from src.utils import time_execution_async, time_execution_sync
 
@@ -420,12 +420,24 @@ class Controller:
 			param_model=NoParamsAction
 		)
 		async def wait():
-			# P3.6 修复 · 原本是 no-op：fast-path 在 open_app 后立刻 input_text，
-			# Calculator 等冷启动应用还没获得焦点，键盘事件被吞 → 19*93 没输进去。
-			# 这里改为真等 1 秒，配合 multi_act 之间的 0.5s sleep，
-			# 给冷启动应用充分的"启动 + 抢焦点"时间。
+			# P3.6 fix: real wait for app cold-start
 			await asyncio.sleep(1.0)
 			return ActionResult(extracted_content='Waited 1s')
+
+		@self.registry.action(
+			'Type characters using native key codes (works with Calculator)',
+			param_model=InputTextAction,
+		)
+		async def type_keys(text: str):
+			"""Send each character as a native macOS key code via CGEvent."""
+			logger.info(f'Typing via keycodes: {text}')
+			for ch in text:
+				await press_keycode(ch)
+				await asyncio.sleep(0.05)
+			return ActionResult(extracted_content=f'Typed: {text}')
+
+
+
 
 	def action(self, description: str, **kwargs):
 		"""Decorator for registering custom actions
