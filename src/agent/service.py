@@ -55,6 +55,7 @@ from src.utils.skills import (
     format_skill_context,
 )
 from src.agent.planner_service import Planner
+from src.agent.quick_skills import find_quick_skill  # P3.6 · 高频任务 fast-path
 from src.controller.service import Controller
 from src.mac.tree import MacUITreeBuilder
 from src.utils import time_execution_async
@@ -1381,6 +1382,13 @@ class Agent:
         try:
             self._log_agent_run()
 
+            # ─── P3.6 · 高频任务 fast-path ──────────────────────────
+            # 命中预设 skill 时直接走 controller，跳过 brain/actor/planner，
+            # 实测能把"打开计算器 17×23"这类典型 demo 任务从 51s 压到 ≤8s。
+            if await self._try_quick_skill():
+                return self.history
+            # ──────────────────────────────────────────────────────
+
             if self.planner_llm and not self.resume:
                 await self.edit()
 
@@ -1522,6 +1530,60 @@ class Agent:
             logger.error(f'❌ Stopping due to {self.max_failures} consecutive failures')
             return True
         return False
+
+    async def _try_quick_skill(self) -> bool:
+        """
+        P3.6 · 高频任务 fast-path：命中预设 skill 时直接走 controller，
+        跳过 brain/actor/planner 整条链路。
+
+        Returns:
+            True  — 命中并执行成功，主循环应直接返回
+            False — 不命中或执行失败，主循环继续走原 brain → actor 流程
+        """
+        match = find_quick_skill(self.original_task)
+        if match is None:
+            return False
+
+        skill, action_dicts = match
+        logger.info(
+            f'🚀 Fast-path: skill "{skill.name}" matched task; '
+            f'executing {len(action_dicts)} actions, bypassing brain/actor.'
+        )
+
+        # 在 timeline 上插入 fast-path 标记，让 dashboard 看得到"为什么这么快"
+        self._plan_history.append({
+            "step": 1,
+            "goal": f"🚀 Fast-path: {skill.name}",
+            "status": "in_progress",
+        })
+        self._dump_plan_history()
+
+        # dict → ActionModel pydantic 实例（self.ActionModel 在 __init__ 末尾由 controller 动态创建）
+        try:
+            actions = [self.ActionModel.model_validate(d) for d in action_dicts]
+        except Exception:
+            logger.exception('🚀 Fast-path action validation failed; falling back to brain/actor')
+            self._plan_history[-1]["status"] = "failed"
+            self._plan_history[-1]["goal"] = f"🚀 Fast-path 验证失败: {skill.name}"
+            self._dump_plan_history()
+            return False
+
+        # 直接调 controller，避开 brain → actor → memory → critic 的整条慢流水
+        try:
+            await self.controller.multi_act(actions, self.mac_tree_builder)
+        except Exception:
+            logger.exception('🚀 Fast-path execution crashed; falling back to brain/actor')
+            self._plan_history[-1]["status"] = "failed"
+            self._plan_history[-1]["goal"] = f"🚀 Fast-path 执行失败: {skill.name}"
+            self._dump_plan_history()
+            return False
+
+        # 任务完成
+        self._plan_history[-1]["status"] = "success"
+        self._plan_status = "done"
+        self._dump_plan_history()
+        logger.info(f'✅ Task completed via fast-path "{skill.name}"')
+        return True
 
     # ─── P2.2-B · Verification Critic ─────────────────────────────────
     async def _verification_critic_check(self, step_id: int) -> Optional[dict]:
