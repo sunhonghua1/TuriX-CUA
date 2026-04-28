@@ -83,11 +83,11 @@ def _build_calculator_actions(task: str) -> ActionList:
     # AppleScript System Events 需要 Automation 权限（子进程拿不到）。
     # 最终方案：type_keys 用真实的 macOS key code (CGEvent) 发送按键，
     # 并且传入 app_name="Calculator" 让底层强制抢回 Calculator 的焦点！
+    # 将回车(\n)合并在同一个动作里，避免中间的 0.5s 间隙被浏览器再次抢走焦点。
     return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
-        {"type_keys": {"text": expr, "app_name": "Calculator"}},
-        {"Hotkey": {"key": "enter"}},
+        {"type_keys": {"text": f"{expr}\n", "app_name": "Calculator"}},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",
             "file_name": "calculator_result.txt",

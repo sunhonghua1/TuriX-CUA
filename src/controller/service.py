@@ -463,8 +463,15 @@ class Controller:
 							break
 			
 			if target:
-				target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
-				logger.info(f'Force-activated target: {target.localizedName()} ({target.bundleIdentifier()})')
+				# activateWithOptions_ can fail to steal focus on modern macOS if the OS thinks 
+				# the browser is actively being used. "open -b" via LaunchServices is much stronger.
+				bundle_id = target.bundleIdentifier()
+				if bundle_id:
+					subprocess.run(["open", "-b", bundle_id])
+				else:
+					target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
+				
+				logger.info(f'Force-activated target: {target.localizedName()} ({bundle_id})')
 				await asyncio.sleep(0.5)
 			
 			for ch in text:
