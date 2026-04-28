@@ -79,17 +79,24 @@ def _build_calculator_actions(task: str) -> ActionList:
     expr = _extract_math_expr(task)
     if not expr:
         return []
-    # Calculator.app 需要：
-    # 1. 先 open_app 启动（内置等前台逻辑）
-    # 2. 用 AppleScript 强制激活，防止 LittleFox 浏览器抢焦点
-    # 3. 用 input_text 逐字符通过 Quartz Unicode 事件发送（比 Hotkey 更可靠）
+    # Calculator.app 既不接受 input_text（Quartz Unicode 事件）也不接受 pyautogui.press。
+    # 唯一可靠的方式：用一条 AppleScript 原子操作完成 激活 + 键盘输入 + 回车。
+    # 这样不会被 LittleFox 浏览器抢走焦点。
+    script = (
+        f'tell application "Calculator" to activate\n'
+        f'delay 1\n'
+        f'tell application "System Events"\n'
+        f'    tell process "Calculator"\n'
+        f'        keystroke "{expr}"\n'
+        f'        delay 0.3\n'
+        f'        keystroke return\n'
+        f'    end tell\n'
+        f'end tell'
+    )
     return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
-        {"run_apple_script": {"script": 'tell application "Calculator" to activate'}},
-        {"wait": {}},
-        {"input_text": {"text": expr}},
-        {"Hotkey": {"key": "enter"}},
+        {"run_apple_script": {"script": script}},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",
             "file_name": "calculator_result.txt",
