@@ -39,7 +39,7 @@
     "supports_tool_calling": false
   },
   "agent": {
-    "task": "打开计算器17*23 是多少",
+    "task": "打开计算器，27*82等于多少",
     "memory_budget_tokens": 8000,
     "summary_memory_budget_tokens": 32000,
     "use_ui": false,

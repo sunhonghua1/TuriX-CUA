@@ -79,18 +79,23 @@ def _build_calculator_actions(task: str) -> ActionList:
     expr = _extract_math_expr(task)
     if not expr:
         return []
-    # Calculator.app 接受 + - * / 直接键入
-    return [
+    # Calculator.app 不接受 input_text（bulk typing），必须逐键按。
+    # open_app 现在已经内置了等待 app 成为前台的逻辑（最长 5s），
+    # 所以只需一个 wait 做缓冲即可。
+    actions: ActionList = [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
-        {"input_text": {"text": expr}},
-        {"Hotkey": {"key": "enter"}},
-        {"record_info": {
-            "text": f"Calculator opened and computed: {expr}",
-            "file_name": "calculator_result.txt",
-        }},
-        {"done": {}},
     ]
+    # 逐字符发送按键
+    for ch in expr:
+        actions.append({"Hotkey": {"key": ch}})
+    actions.append({"Hotkey": {"key": "enter"}})
+    actions.append({"record_info": {
+        "text": f"Calculator opened and computed: {expr}",
+        "file_name": "calculator_result.txt",
+    }})
+    actions.append({"done": {}})
+    return actions
 
 
 # ─── Skill 2：仅打开某个 App（如"打开 Notion"）─────────────────────
@@ -140,8 +145,10 @@ def _build_simple_open_actions(task: str) -> ActionList:
     app_name = _is_pure_open_request(task)
     if not app_name:
         return []
+    # 纯启动场景不需要键盘交互，1 个 wait 让用户看到 app 出现就够了
     return [
         {"open_app": {"app_name": app_name}},
+        {"wait": {}},
         {"wait": {}},
         {"record_info": {
             "text": f"Successfully opened {app_name}",

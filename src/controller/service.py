@@ -198,7 +198,19 @@ class Controller:
 				logger.error(msg)
 				return ActionResult(extracted_content=msg, error=msg)
 
+			# P3.6 Fix: Wait up to 5 seconds for the application to actually become frontmost
 			pid = None
+			logger.info(f"Waiting for {user_input} to become active...")
+			for _ in range(20):  # 20 * 0.25s = 5 seconds timeout
+				front_app = workspace.frontmostApplication()
+				if front_app and front_app.localizedName():
+					if user_input.lower() in front_app.localizedName().lower() or front_app.localizedName().lower() in user_input.lower():
+						pid = front_app.processIdentifier()
+						break
+				await asyncio.sleep(0.25)
+			
+			if not pid:
+				logger.warning(f"Timeout waiting for '{user_input}' to become frontmost. It might be running in background.")
 
 			success_msg = f"✅ Launched {user_input}, PID={pid}"
 			logger.info(success_msg)
@@ -417,7 +429,12 @@ class Controller:
 			param_model=NoParamsAction
 		)
 		async def wait():
-			return ActionResult(extracted_content=f'Waiting')
+			# P3.6 修复 · 原本是 no-op：fast-path 在 open_app 后立刻 input_text，
+			# Calculator 等冷启动应用还没获得焦点，键盘事件被吞 → 19*93 没输进去。
+			# 这里改为真等 1 秒，配合 multi_act 之间的 0.5s sleep，
+			# 给冷启动应用充分的"启动 + 抢焦点"时间。
+			await asyncio.sleep(1.0)
+			return ActionResult(extracted_content='Waited 1s')
 
 	def action(self, description: str, **kwargs):
 		"""Decorator for registering custom actions
