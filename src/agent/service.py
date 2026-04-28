@@ -84,11 +84,21 @@ def _default_agent_id(task: str, now: datetime) -> str:
     slug = _task_to_slug(task)
     return f"{date_str}_{slug}"
 
+SCREENSHOT_MAX_WIDTH = 1440
+
 def screenshot_to_dataurl(screenshot):
+    if screenshot.width > SCREENSHOT_MAX_WIDTH:
+        ratio = SCREENSHOT_MAX_WIDTH / screenshot.width
+        new_size = (SCREENSHOT_MAX_WIDTH, int(screenshot.height * ratio))
+        screenshot = screenshot.resize(new_size, Image.LANCZOS)
+        
+    if screenshot.mode != 'RGB':
+        screenshot = screenshot.convert('RGB')
+        
     img_byte_arr = io.BytesIO()
-    screenshot.save(img_byte_arr, format='PNG')
+    screenshot.save(img_byte_arr, format='JPEG', quality=85, optimize=True)
     base64_encoded = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
-    return f'data:image/png;base64,{base64_encoded}'
+    return f'data:image/jpeg;base64,{base64_encoded}'
 
 def _llm_identity_text(llm: Optional[BaseChatModel]) -> str:
     if llm is None:
