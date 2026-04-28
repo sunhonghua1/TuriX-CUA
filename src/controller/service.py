@@ -462,22 +462,25 @@ class Controller:
 							target = app
 							break
 			
+			pid = None
 			if target:
 				# activateWithOptions_ can fail to steal focus on modern macOS if the OS thinks 
 				# the browser is actively being used. "open -b" via LaunchServices is much stronger.
 				bundle_id = target.bundleIdentifier()
+				pid = target.processIdentifier()
+				
 				if bundle_id:
 					subprocess.run(["open", "-b", bundle_id])
 				else:
 					target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
 				
-				logger.info(f'Force-activated target: {target.localizedName()} ({bundle_id})')
+				logger.info(f'Force-activated target: {target.localizedName()} ({bundle_id}), PID={pid}')
 				await asyncio.sleep(0.5)
 			
 			for ch in text:
-				await press_keycode(ch)
+				await press_keycode(ch, pid=pid)
 				await asyncio.sleep(0.05)
-			return ActionResult(extracted_content=f'Typed: {text}')
+			return ActionResult(extracted_content=f'Typed: {text} into PID: {pid}')
 
 
 

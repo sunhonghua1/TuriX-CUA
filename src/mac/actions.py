@@ -282,11 +282,12 @@ _CHAR_TO_KEYCODE: dict[str, tuple[int, bool]] = {
 }
 
 
-async def press_keycode(char: str) -> bool:
+async def press_keycode(char: str, pid: Optional[int] = None) -> bool:
     """
     Send a real macOS key code via CGEvent. Works with Calculator.app
     and other apps that ignore unicode string events.
-    Only needs Accessibility permission, NOT Automation permission.
+    If `pid` is provided, the event is routed directly to that process's event queue,
+    bypassing the need for the app to actually be frontmost!
     """
     lookup = _CHAR_TO_KEYCODE.get(char.lower() if len(char) > 1 else char)
     if lookup is None:
@@ -297,31 +298,37 @@ async def press_keycode(char: str) -> bool:
     
     keycode, needs_shift = lookup
     
+    def post_event(ev):
+        if pid:
+            Quartz.CGEventPostToPid(pid, ev)
+        else:
+            Quartz.CGEventPost(Quartz.kCGSessionEventTap, ev)
+    
     if needs_shift:
         # Press shift down
         shift_down = Quartz.CGEventCreateKeyboardEvent(None, 56, True)
-        Quartz.CGEventPost(Quartz.kCGSessionEventTap, shift_down)
+        post_event(shift_down)
         await asyncio.sleep(0.02)
     
     # Key down
     key_down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
     if needs_shift:
         Quartz.CGEventSetFlags(key_down, Quartz.kCGEventFlagMaskShift)
-    Quartz.CGEventPost(Quartz.kCGSessionEventTap, key_down)
+    post_event(key_down)
     await asyncio.sleep(0.02)
     
     # Key up
     key_up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
-    Quartz.CGEventPost(Quartz.kCGSessionEventTap, key_up)
+    post_event(key_up)
     await asyncio.sleep(0.02)
     
     if needs_shift:
         # Release shift
         shift_up = Quartz.CGEventCreateKeyboardEvent(None, 56, False)
-        Quartz.CGEventPost(Quartz.kCGSessionEventTap, shift_up)
+        post_event(shift_up)
         await asyncio.sleep(0.02)
     
-    logger.info(f"✅ pressed keycode {keycode} for '{char}'")
+    logger.info(f"✅ pressed keycode {keycode} for '{char}' (pid={pid})")
     return True
 
 async def _unicode_event(char: str, down: bool):
