@@ -204,8 +204,13 @@ class Controller:
 			logger.info(f"Waiting for {user_input} to become active...")
 			for _ in range(20):  # 20 * 0.25s = 5 seconds timeout
 				front_app = workspace.frontmostApplication()
-				if front_app and front_app.localizedName():
-					if user_input.lower() in front_app.localizedName().lower() or front_app.localizedName().lower() in user_input.lower():
+				if front_app:
+					name = front_app.localizedName() or ""
+					bundle_id = front_app.bundleIdentifier() or ""
+					# Match either localized name (e.g., "Calculator") or bundle ID (e.g., "com.apple.calculator" for "计算器")
+					if (user_input.lower() in name.lower() or 
+						name.lower() in user_input.lower() or 
+						user_input.lower().replace(" ", "") in bundle_id.lower()):
 						pid = front_app.processIdentifier()
 						break
 				await asyncio.sleep(0.25)
@@ -438,9 +443,13 @@ class Controller:
 			target = None
 			
 			if app_name:
-				# Target specifically requested app
+				# Target specifically requested app (using localizedName and bundleIdentifier)
 				for app in workspace.runningApplications():
-					if app.localizedName() and app_name.lower() in app.localizedName().lower():
+					name = app.localizedName() or ""
+					bundle_id = app.bundleIdentifier() or ""
+					if (app_name.lower() in name.lower() or 
+						name.lower() in app_name.lower() or 
+						app_name.lower().replace(" ", "") in bundle_id.lower()):
 						target = app
 						break
 			else:
@@ -455,7 +464,7 @@ class Controller:
 			
 			if target:
 				target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
-				logger.info(f'Force-activated target: {target.localizedName()}')
+				logger.info(f'Force-activated target: {target.localizedName()} ({target.bundleIdentifier()})')
 				await asyncio.sleep(0.5)
 			
 			for ch in text:
