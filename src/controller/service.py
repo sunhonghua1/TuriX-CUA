@@ -429,8 +429,31 @@ class Controller:
 			param_model=InputTextAction,
 		)
 		async def type_keys(text: str):
-			"""Send each character as a native macOS key code via CGEvent."""
+			"""Send each character as a native macOS key code via CGEvent.
+			Force-activates the target app (non-browser) before typing."""
 			logger.info(f'Typing via keycodes: {text}')
+			
+			# The browser steals focus during multi_act sleeps.
+			# We need to find and re-activate the actual target app.
+			workspace = Cocoa.NSWorkspace.sharedWorkspace()
+			browser_names = {'Google Chrome', 'Safari', 'Firefox', 'Arc', 'Chromium', 'Brave Browser'}
+			
+			# Strategy: find the non-browser app that was most recently activated
+			target = None
+			for app in workspace.runningApplications():
+				name = app.localizedName() or ''
+				if name and name not in browser_names and app.activationPolicy() == Cocoa.NSApplicationActivationPolicyRegular:
+					# Pick the first regular (non-background) non-browser app we find
+					# that isn't our own agent process
+					if name not in ('Terminal', 'Warp', 'Antigravity', 'iTerm2', 'Code'):
+						target = app
+						break
+			
+			if target:
+				target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
+				logger.info(f'Force-activated target: {target.localizedName()}')
+				await asyncio.sleep(0.5)
+			
 			for ch in text:
 				await press_keycode(ch)
 				await asyncio.sleep(0.05)
