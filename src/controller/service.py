@@ -227,7 +227,7 @@ class Controller:
 			# process, which already has Accessibility permission granted.
 			# Spawning a child `osascript` process loses that permission on macOS.
 			try:
-				from Foundation import NSAppleScript, NSAppleEventDescriptor
+				from Foundation import NSAppleScript
 				
 				wrapped_script = f'''
 					try
@@ -239,8 +239,8 @@ class Controller:
 				'''
 				
 				as_obj = NSAppleScript.alloc().initWithSource_(wrapped_script)
-				error_info = None
-				result_desc = as_obj.executeAndReturnError_(None)
+				# PyObjC returns a tuple: (NSAppleEventDescriptor, NSDictionary_or_None)
+				result_desc, error_dict = as_obj.executeAndReturnError_(None)
 				
 				if result_desc is not None:
 					output = result_desc.stringValue() or "OK"
@@ -249,19 +249,10 @@ class Controller:
 						return ActionResult(extracted_content=output, error=output)
 					return ActionResult(extracted_content=output)
 				else:
-					# Fall back to subprocess if NSAppleScript fails entirely
-					result = subprocess.run(
-						['osascript', '-e', wrapped_script],
-						capture_output=True,
-						text=True
-					)
-					if result.returncode == 0:
-						return ActionResult(extracted_content=result.stdout.strip() or "OK")
-					else:
-						error_msg = f"AppleScript failed: {result.stderr.strip()}"
-						logger.error(error_msg)
-						return ActionResult(extracted_content=error_msg, error=error_msg)
-						
+					error_msg = f"AppleScript error: {error_dict}"
+					logger.error(error_msg)
+					return ActionResult(extracted_content=error_msg, error=error_msg)
+					
 			except Exception as e:
 				error_msg = f"Failed to run AppleScript: {str(e)}"
 				logger.error(error_msg)
