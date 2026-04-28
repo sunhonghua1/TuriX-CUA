@@ -456,31 +456,37 @@ class Controller:
 				# Fallback: Find most recently activated non-browser app
 				browser_names = {'Google Chrome', 'Safari', 'Firefox', 'Arc', 'Chromium', 'Brave Browser'}
 				for app in workspace.runningApplications():
-					name = app.localizedName() or ''
 					if name and name not in browser_names and app.activationPolicy() == Cocoa.NSApplicationActivationPolicyRegular:
 						if name not in ('Terminal', 'Warp', 'Antigravity', 'iTerm2', 'Code'):
 							target = app
 							break
 			
-			pid = None
 			if target:
 				# activateWithOptions_ can fail to steal focus on modern macOS if the OS thinks 
 				# the browser is actively being used. "open -b" via LaunchServices is much stronger.
 				bundle_id = target.bundleIdentifier()
-				pid = target.processIdentifier()
 				
 				if bundle_id:
 					subprocess.run(["open", "-b", bundle_id])
 				else:
 					target.activateWithOptions_(Cocoa.NSApplicationActivateIgnoringOtherApps)
 				
-				logger.info(f'Force-activated target: {target.localizedName()} ({bundle_id}), PID={pid}')
-				await asyncio.sleep(0.5)
-			
+				# CRITICAL FIX: The browser or other apps might steal focus back immediately.
+				# We MUST wait and verify that the target app has actually reached the front.
+				logger.info(f'Waiting up to 3s for {target.localizedName()} to become frontmost...')
+				for _ in range(30):  # 30 * 0.1s = 3 seconds
+					front = workspace.frontmostApplication()
+					if front and front.processIdentifier() == target.processIdentifier():
+						logger.info(f'✅ Target {target.localizedName()} is now verifiably frontmost.')
+						break
+					await asyncio.sleep(0.1)
+				else:
+					logger.warning(f'⚠️ Timeout! {target.localizedName()} failed to become frontmost.')
+				
 			for ch in text:
-				await press_keycode(ch, pid=pid)
+				await press_keycode(ch)
 				await asyncio.sleep(0.05)
-			return ActionResult(extracted_content=f'Typed: {text} into PID: {pid}')
+			return ActionResult(extracted_content=f'Typed: {text}')
 
 
 
