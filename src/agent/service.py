@@ -394,7 +394,7 @@ class Agent:
         # 独立判断"任务真的推进了吗"。专治 brain 自欺欺人的 success。
         # 默认未启用（critic_llm=None）；启用后每 N 步触发一次（成本可控）。
         self.critic_llm = critic_llm
-        self._critic_check_interval: int = 3  # 每 N 步触发一次 critic
+        self._critic_check_interval: int = 7  # P3.2 · 原 3 步太密：critic 实战触发率低，调成 7 步
         self._critic_overrule_count: int = 0  # 已被 critic 推翻的次数（用于 timeline 展示）
         # ──────────────────────────────────────────────────────────────
         self.brain_memory = ''
@@ -1401,7 +1401,7 @@ class Agent:
                     if self.register_done_callback:
                         self.register_done_callback(self.history)
                     break
-                await asyncio.sleep(2)  # Wait before next step
+                await asyncio.sleep(0.3)  # P3.1 · 主循环节流：原 2s 纯空等，缩到 0.3s 每步省 1.7s
             else:
                 logger.info('❌ Failed to complete task in maximum steps')
                 # Finalize plan timeline on failure
