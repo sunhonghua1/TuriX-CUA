@@ -75,5 +75,5 @@ class NoParamsAction(ActionModel):
 
 class RunScriptAction(BaseModel):
 	"""Run a standalone Python helper script as a subprocess."""
-	script_module: str = Field(..., description="Python module path, e.g. 'src.mac.calc_helper'")
+	script_path: str = Field(..., description="Path to the Python script, e.g. 'src/mac/calc_helper.py'")
 	args: List[str] = Field(default_factory=list, description="Arguments to pass to the script")

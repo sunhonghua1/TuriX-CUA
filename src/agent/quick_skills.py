@@ -83,7 +83,7 @@ def _build_calculator_actions(task: str) -> ActionList:
     # 全部在一个原子进程里完成，彻底绕开 controller 多步拆分被浏览器抢焦点的问题！
     return [
         {"run_script": {
-            "script_module": "src.mac.calc_helper",
+            "script_path": "src/mac/calc_helper.py",
             "args": [expr],
         }},
         {"record_info": {

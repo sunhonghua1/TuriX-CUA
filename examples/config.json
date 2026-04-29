@@ -39,7 +39,7 @@
     "supports_tool_calling": false
   },
   "agent": {
-    "task": "打开计算器算 17 × 23",
+    "task": "打开计算器算 18 × 23",
     "memory_budget_tokens": 8000,
     "summary_memory_budget_tokens": 32000,
     "use_ui": false,

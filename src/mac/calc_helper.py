@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-独立的计算器辅助脚本 —— 绕开 TuriX controller 的多步拆分。
+独立的计算器辅助脚本 —— 100% 自包含，零外部依赖。
 
 把"打开计算器 → 等焦点 → 清零 → 输入表达式 → 回车"全部在一个原子操作里完成，
 杜绝浏览器在 action 间隙抢焦点的问题。
 
 用法:
-    python3 -m src.mac.calc_helper "17*23"
-    python3 -m src.mac.calc_helper "27*82"
-    python3 -m src.mac.calc_helper "123+456"
+    python3 src/mac/calc_helper.py "17*23"
+    python3 src/mac/calc_helper.py "27×82"
 """
-import asyncio
 import subprocess
 import sys
 import time
@@ -73,12 +71,6 @@ def calculate(expr: str) -> bool:
     """
     原子操作：打开计算器 → 等焦点 → AC清零 → 输入表达式 → 回车。
     全程同步执行，没有任何可以被浏览器钻空子的间隙。
-    
-    Args:
-        expr: 数学表达式，如 "17*23"、"123+456"
-    
-    Returns:
-        True 如果所有步骤成功完成
     """
     t0 = time.time()
 
@@ -129,7 +121,7 @@ def normalize_expr(raw: str) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python3 -m src.mac.calc_helper '17*23'")
+        print("用法: python3 src/mac/calc_helper.py '17*23'")
         sys.exit(1)
     
     raw_expr = sys.argv[1]

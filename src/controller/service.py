@@ -493,11 +493,15 @@ class Controller:
 			'Run a standalone Python helper script as a subprocess (atomic, no focus gaps)',
 			param_model=RunScriptAction,
 		)
-		async def run_script(script_module: str, args: list[str] = []):
-			"""Run a Python module as subprocess. Used by fast-path to bypass
+		async def run_script(script_path: str, args: list[str] = []):
+			"""Run a Python script as subprocess. Used by fast-path to bypass
 			the multi-action controller pipeline entirely."""
 			import sys
-			cmd = [sys.executable, "-m", script_module] + args
+			import os
+			# Use the same Python interpreter from the venv
+			python_exe = sys.executable
+			script_abs = os.path.join("/Users/github/TuriX-CUA", script_path)
+			cmd = [python_exe, script_abs] + args
 			logger.info(f'Running script: {" ".join(cmd)}')
 			result = await asyncio.get_event_loop().run_in_executor(
 				None,
@@ -505,9 +509,9 @@ class Controller:
 			)
 			output = result.stdout.strip()
 			if result.returncode != 0:
-				error = result.stderr.strip()
-				logger.error(f'Script failed: {error}')
-				return ActionResult(extracted_content=f'Script error: {error}', error=error)
+				error_out = result.stderr.strip() if result.stderr else "Unknown error"
+				logger.error(f'Script failed (rc={result.returncode}): {error_out}')
+				return ActionResult(extracted_content=f'Script error: {error_out}', error=error_out)
 			logger.info(f'Script output:\n{output}')
 			return ActionResult(extracted_content=output)
 
