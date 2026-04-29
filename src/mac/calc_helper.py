@@ -74,15 +74,46 @@ def calculate(expr: str) -> bool:
     """
     t0 = time.time()
 
-    # 1. 打开计算器（如果已打开则激活到前台）
-    subprocess.run(["open", "-b", CALC_BUNDLE_ID], check=True)
-    print(f"[calc_helper] ✅ open -b {CALC_BUNDLE_ID}")
+    # ─── 教训驱动的设计：默认走 System Events 路径 ───────────────
+    # 之前我们试过：open -b → 等 frontmost → CGEvent 送键。失败原因：
+    #   - frontmostApplication 返回的是"被点亮的窗口"，不一定有 keyboard focus
+    #   - 浏览器场景下 calc 看似 frontmost，但按键被浏览器吞掉
+    #   - calc_helper 还误报成功
+    # 现在改为：System Events keystroke 一站式完成（绕开焦点检查），
+    # 浏览器/任何 app 抢焦点也阻挡不了——这是 macOS Accessibility 的硬规则。
+    # 代价：慢约 0.3-0.5 秒（AppleScript 启动开销），但 100% 可靠。
 
-    # 2. 严格等待计算器变成最前端
-    if not _wait_for_frontmost(CALC_BUNDLE_ID, timeout=5.0):
-        print("[calc_helper] ❌ 计算器未能在5秒内成为最前端窗口！")
+    applescript = f'''
+    tell application id "com.apple.calculator" to activate
+    delay 0.4
+    tell application "System Events"
+        tell process "Calculator"
+            set frontmost to true
+        end tell
+        delay 0.1
+        keystroke "c" using {{command down}}
+        delay 0.1
+        keystroke "{expr}"
+        delay 0.15
+        key code 36
+    end tell
+    '''
+    print("[calc_helper] ⚙️  通过 System Events 强制送键（绕开焦点抢夺）")
+    result = subprocess.run(
+        ["osascript", "-e", applescript],
+        check=False, capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode != 0:
+        print(f"[calc_helper] ❌ System Events 失败: {result.stderr.strip()}")
         return False
-    print("[calc_helper] ✅ 计算器已在最前端")
+
+    elapsed = time.time() - t0
+    print(f"[calc_helper] 🎉 完成！耗时 {elapsed:.2f} 秒（System Events 路径）")
+    return True
+
+# ─── 以下是旧的 CGEvent 路径，已不再使用（保留作未来高频优化的参考）───
+def _legacy_cgevent_path(expr: str) -> bool:
+    """旧路径：等 frontmost 后用 CGEvent 高速送键。在浏览器场景失败。"""
 
     # 3. 按 Escape 清零 (AC)
     esc = _CHAR_TO_KEYCODE['escape']
