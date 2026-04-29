@@ -79,17 +79,13 @@ def _build_calculator_actions(task: str) -> ActionList:
     expr = _extract_math_expr(task)
     if not expr:
         return []
-    # Calculator.app 不接受 input_text (Quartz unicode events) 也不接受 pyautogui.press。
-    # AppleScript System Events 需要 Automation 权限（子进程拿不到）。
-    # 最终方案：type_keys 用真实的 macOS key code (CGEvent) 发送按键，
-    # 并且传入 app_name="Calculator" 让底层强制抢回 Calculator 的焦点！
-    # 将回车(\n)合并在同一个动作里，避免中间的 0.5s 间隙被浏览器再次抢走焦点。
-    # 先按 Escape (AC) 清除上一次的计算结果，避免数字叠加！
+    # 终极方案：用独立的 calc_helper.py 脚本把"打开 → 等焦点 → AC → 输入 → 回车"
+    # 全部在一个原子进程里完成，彻底绕开 controller 多步拆分被浏览器抢焦点的问题！
     return [
-        {"open_app": {"app_name": "Calculator"}},
-        {"wait": {}},
-        {"Hotkey": {"key": "escape"}},
-        {"type_keys": {"text": f"{expr}\n", "app_name": "Calculator"}},
+        {"run_script": {
+            "script_module": "src.mac.calc_helper",
+            "args": [expr],
+        }},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",
             "file_name": "calculator_result.txt",

@@ -72,3 +72,8 @@ class NoParamsAction(ActionModel):
 	Simple parameter model requiring no arguments.
 	"""
 	pass
+
+class RunScriptAction(BaseModel):
+	"""Run a standalone Python helper script as a subprocess."""
+	script_module: str = Field(..., description="Python module path, e.g. 'src.mac.calc_helper'")
+	args: List[str] = Field(default_factory=list, description="Arguments to pass to the script")

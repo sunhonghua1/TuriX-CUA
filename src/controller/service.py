@@ -19,7 +19,8 @@ from src.controller.views import (
 	ScrollDownAction,
 	ScrollUpAction,
 	MoveToAction,
-	RecordAction
+	RecordAction,
+	RunScriptAction,
 )
 
 
@@ -487,6 +488,28 @@ class Controller:
 				await press_keycode(ch)
 				await asyncio.sleep(0.05)
 			return ActionResult(extracted_content=f'Typed: {text}')
+
+		@self.registry.action(
+			'Run a standalone Python helper script as a subprocess (atomic, no focus gaps)',
+			param_model=RunScriptAction,
+		)
+		async def run_script(script_module: str, args: list[str] = []):
+			"""Run a Python module as subprocess. Used by fast-path to bypass
+			the multi-action controller pipeline entirely."""
+			import sys
+			cmd = [sys.executable, "-m", script_module] + args
+			logger.info(f'Running script: {" ".join(cmd)}')
+			result = await asyncio.get_event_loop().run_in_executor(
+				None,
+				lambda: subprocess.run(cmd, capture_output=True, text=True, cwd="/Users/github/TuriX-CUA")
+			)
+			output = result.stdout.strip()
+			if result.returncode != 0:
+				error = result.stderr.strip()
+				logger.error(f'Script failed: {error}')
+				return ActionResult(extracted_content=f'Script error: {error}', error=error)
+			logger.info(f'Script output:\n{output}')
+			return ActionResult(extracted_content=output)
 
 
 
