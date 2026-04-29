@@ -41,22 +41,32 @@ APP_ALIASES: dict[str, str] = {
 }
 
 
+try:
+    from .app_registry import resolve_app_bundle_id
+except ImportError:
+    from app_registry import resolve_app_bundle_id
+
 def resolve_bundle_id(name: str) -> str | None:
     key = name.strip().lower()
     if key.startswith("com."):
         return key
-    return APP_ALIASES.get(key)
+    
+    # 1. Try hardcoded aliases first
+    if key in APP_ALIASES:
+        return APP_ALIASES[key]
+        
+    # 2. Dynamically resolve localized names via mdfind
+    return resolve_app_bundle_id(name)
 
 
 def launch(app_token: str, *, wait_timeout: float = 8.0) -> bool:
     """
     启动或激活应用并等待其成为最前端。
-    app_token: 别名（safari）或完整 bundle id。
+    app_token: 别名（safari）、本地化名称（备忘录）或完整 bundle id。
     """
     bid = resolve_bundle_id(app_token)
     if not bid:
-        print(f"[app_launcher] 未知应用: {app_token}", file=sys.stderr)
-        print(f"[app_launcher] 已知别名: {', '.join(sorted(APP_ALIASES.keys()))}", file=sys.stderr)
+        print(f"[app_launcher] 未找到应用: {app_token}", file=sys.stderr)
         return False
 
     subprocess.run(["open", "-b", bid], check=True)
