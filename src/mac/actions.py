@@ -279,6 +279,7 @@ _CHAR_TO_KEYCODE: dict[str, tuple[int, bool]] = {
     '+': (24, True), '-': (27, False), '*': (28, True), '/': (44, False),
     '=': (24, False), '.': (47, False),
     '\n': (36, False), 'enter': (36, False), 'return': (36, False),
+    'escape': (53, False), 'esc': (53, False), 'clear': (53, False),
 }
 
 

@@ -84,9 +84,11 @@ def _build_calculator_actions(task: str) -> ActionList:
     # 最终方案：type_keys 用真实的 macOS key code (CGEvent) 发送按键，
     # 并且传入 app_name="Calculator" 让底层强制抢回 Calculator 的焦点！
     # 将回车(\n)合并在同一个动作里，避免中间的 0.5s 间隙被浏览器再次抢走焦点。
+    # 先按 Escape (AC) 清除上一次的计算结果，避免数字叠加！
     return [
         {"open_app": {"app_name": "Calculator"}},
         {"wait": {}},
+        {"Hotkey": {"key": "escape"}},
         {"type_keys": {"text": f"{expr}\n", "app_name": "Calculator"}},
         {"record_info": {
             "text": f"Calculator opened and computed: {expr}",
