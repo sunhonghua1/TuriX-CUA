@@ -494,26 +494,41 @@ class Controller:
 			param_model=RunScriptAction,
 		)
 		async def run_script(script_path: str, args: list[str] = []):
-			"""Run a Python script as subprocess. Used by fast-path to bypass
-			the multi-action controller pipeline entirely."""
-			import sys
+			"""Run a helper script's main function IN-PROCESS (not subprocess).
+			Subprocess loses Accessibility permissions for CGEventPost.
+			We import the script directly and call its calculate() function 
+			in the same process that already has Accessibility permission."""
+			import importlib.util
 			import os
-			# Use the same Python interpreter from the venv
-			python_exe = sys.executable
+			
 			script_abs = os.path.join("/Users/github/TuriX-CUA", script_path)
-			cmd = [python_exe, script_abs] + args
-			logger.info(f'Running script: {" ".join(cmd)}')
-			result = await asyncio.get_event_loop().run_in_executor(
-				None,
-				lambda: subprocess.run(cmd, capture_output=True, text=True, cwd="/Users/github/TuriX-CUA")
-			)
-			output = result.stdout.strip()
-			if result.returncode != 0:
-				error_out = result.stderr.strip() if result.stderr else "Unknown error"
-				logger.error(f'Script failed (rc={result.returncode}): {error_out}')
-				return ActionResult(extracted_content=f'Script error: {error_out}', error=error_out)
-			logger.info(f'Script output:\n{output}')
-			return ActionResult(extracted_content=output)
+			logger.info(f'Loading helper script in-process: {script_abs} with args={args}')
+			
+			try:
+				# Dynamic import of the helper script
+				spec = importlib.util.spec_from_file_location("calc_helper", script_abs)
+				mod = importlib.util.module_from_spec(spec)
+				spec.loader.exec_module(mod)
+				
+				# Normalize expression if args provided
+				if args and hasattr(mod, 'normalize_expr') and hasattr(mod, 'calculate'):
+					expr = mod.normalize_expr(args[0])
+					logger.info(f'Calling calculate("{expr}") in-process')
+					# Run the synchronous calculate() in a thread to not block the event loop
+					success = await asyncio.get_event_loop().run_in_executor(
+						None,
+						lambda: mod.calculate(expr)
+					)
+					if success:
+						return ActionResult(extracted_content=f'Calculator computed: {expr}')
+					else:
+						return ActionResult(extracted_content='Calculator failed', error='Calculator failed')
+				else:
+					return ActionResult(extracted_content='Script has no calculate() function', error='No calculate()')
+			except Exception as e:
+				error_msg = f'Script error: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(extracted_content=error_msg, error=error_msg)
 
 
 
