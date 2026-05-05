@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import subprocess
+import voice  # 🦊 导入语音引擎
 from pathlib import Path
 from datetime import datetime
 
@@ -160,6 +161,8 @@ def run(query_type: str, extra: str = "{}") -> int:
             _notify("小狐狸 · CRM", "仪表盘数据已复制到剪贴板")
             print(f"[crm_query] ✅ 仪表盘数据已获取")
             print(output)
+            # 🔊 语音播报
+            voice.speak(f"报告孙先生，本月新增线索{result.get('本月新增线索', 0)}条，已签约合同{result.get('本月签约合同', 0)}份。数据已同步。")
             return 0
 
         elif query_type == "customers":
@@ -170,6 +173,8 @@ def run(query_type: str, extra: str = "{}") -> int:
             _notify("小狐狸 · CRM", f"已查询 {len(result)} 条客户记录")
             print(f"[crm_query] ✅ 查询到 {len(result)} 条客户记录")
             print(output)
+            # 🔊 语音播报
+            voice.speak(f"为您查到{len(result)}家客户，详细名单已复制到剪贴板。")
             return 0
 
         elif query_type == "leads":
@@ -180,6 +185,8 @@ def run(query_type: str, extra: str = "{}") -> int:
             _notify("小狐狸 · CRM", f"已查询 {len(result)} 条线索")
             print(f"[crm_query] ✅ 查询到 {len(result)} 条线索")
             print(output)
+            # 🔊 语音播报
+            voice.speak(f"系统新增了{len(result)}条线索，请及时跟进。")
             return 0
 
         elif query_type == "opportunities":
@@ -197,6 +204,8 @@ def run(query_type: str, extra: str = "{}") -> int:
             _notify("小狐狸 · CRM", "数据快报已生成")
             print(f"[crm_query] ✅ CRM 数据快报已生成")
             print(summary)
+            # 🔊 语音播报 (精简版摘要)
+            voice.speak(f"孙先生，为您生成今日CRM快报。本月活跃商机{query_dashboard().get('活跃商机', 0)}个，业绩稳步增长中。")
             return 0
 
         else:

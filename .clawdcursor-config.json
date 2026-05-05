@@ -1,0 +1,18 @@
+{
+  "provider": "anthropic",
+  "apiKey": "sk-ss-v1-a9a9af132b51a4208ece295aeb64c0b9df40fc0d85b491fab024d0fdabbb453e",
+  "pipeline": {
+    "layer1": true,
+    "layer2": {
+      "enabled": true,
+      "model": "anthropic/claude-sonnet-4.6",
+      "baseUrl": "https://zenmux.ai/api/v1"
+    },
+    "layer3": {
+      "enabled": true,
+      "model": "anthropic/claude-sonnet-4.6",
+      "baseUrl": "https://zenmux.ai/api/v1",
+      "computerUse": false
+    }
+  }
+}

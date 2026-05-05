@@ -17,8 +17,39 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BASE = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:1234/v1")
-_DEFAULT_KEY = os.environ.get("FOX_LOCAL_LLM_API_KEY", "lm-studio")
+_DEFAULT_BASE = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:8000/v1")
+_DEFAULT_KEY = os.environ.get("FOX_LOCAL_LLM_API_KEY", "not-needed")
+
+def _get_relevant_memories(query: str, limit: int = 10) -> str:
+    """从本地 SQLite 数据库中检索最近的对话记录。"""
+    import sqlite3
+    from pathlib import Path
+    db_path = Path.home() / ".ninetail-fox" / "conversations.sqlite"
+    if not db_path.exists():
+        return ""
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        
+        # 改进：直接获取最近的 N 条记录，作为上下文
+        cursor = conn.execute(
+            "SELECT role, content FROM conversation_log ORDER BY timestamp DESC LIMIT ?", 
+            (limit,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return ""
+        
+        # 倒序排列，让时间早的在上面
+        rows.reverse()
+        mem_text = "\n".join([f"【{row['role']}】: {row['content']}" for row in rows])
+        
+        return f"\n--- 历史对话记录 (记忆) ---\n{mem_text}\n--------------------------\n"
+    except Exception as e:
+        logger.debug("检索记忆失败: %s", e)
+        return ""
 
 def _default_model(client: OpenAI) -> str | None:
     explicit = os.environ.get("FOX_LOCAL_LLM_MODEL", "").strip()
@@ -44,10 +75,14 @@ def run_ask(prompt: str) -> bool:
             print("[ask_executor] 无法获取本地模型", file=sys.stderr)
             return False
 
+        print(f"[ask_executor] 正在检索相关记忆...")
+        memory_context = _get_relevant_memories(prompt)
+
         print(f"[ask_executor] 正在调用本地模型 ({use_model}) 回答...")
         completion = client.chat.completions.create(
             model=use_model,
             messages=[
+                {"role": "system", "content": f"你是小狐狸 (LittleFox)，一个贴心的桌面 AI 助手。{memory_context}"},
                 {"role": "user", "content": prompt.strip()},
             ],
             temperature=0.7,

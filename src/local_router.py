@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import logging
 import os
 import re
@@ -30,23 +31,31 @@ except ImportError as e:  # pragma: no cover
 _DEFAULT_BASE = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:1234/v1")
 _DEFAULT_KEY = os.environ.get("FOX_LOCAL_LLM_API_KEY", "lm-studio")
 
-SYSTEM_PROMPT = """你是 LittleFox 的本地意图路由器。根据用户输入，只输出一个 JSON 对象，不要 markdown，不要解释。
+_REAL_DESKTOP = str(Path.home() / "Desktop")
+_REAL_HOME = str(Path.home())
 
-技能八选一：
+def _build_system_prompt() -> str:
+    return f"""你是 LittleFox 的本地意图路由器。根据用户输入，只输出一个 JSON 对象，不要 markdown，不要解释。
+
+重要：本机真实路径为 {_REAL_DESKTOP}（桌面）。所有路径必须使用 ~ 或真实路径，绝对不要用 /Users/yourname 或其他占位符。
+
+技能九选一：
 1) calculator — 仅适合「纯算术 / 公式计算」。
 2) open_app — 仅适合「纯粹打开或启动某个 Mac 应用」。
 3) send_wechat — 只要意图包含发消息、发微信。
-4) local_ask — 纯文本处理、问答、起草邮件。
-5) file_organizer — 文件搬运。参数: source_dir (通常 ~/Desktop), target_folder_name, glob_pattern.
+4) local_ask — 只要提到翻译、写东西、问答、聊天、或者让助手「记住」、「保存」、「记录」某事（纯文本性质的记忆）。参数: prompt (用户原始输入).
+5) file_organizer — 文件搬运。参数: source_dir (必须用 ~ 开头，如 ~/Desktop/05月投递箱), target_folder_name, glob_pattern (支持逗号分隔或关键词如'发票').
 6) excel_writer — 生成 Excel 报表。参数: target_path, data (结构化对象).
-7) word_writer — 生成 Word 文档。参数: target_path, data (包含 title, subtitle, sections 的对象).
-8) fallback — 复杂 GUI 任务、多步操作、视觉识别。
+7) invoice_summarizer — 只要提到提取发票信息、发票汇总表、生成发票Excel等。参数: source_dir (发票所在文件夹), output_path (保存的xlsx路径).
+8) financial_reporter — 只要提到生成财务报告、分析财务数据、写分析摘要等。参数: excel_path (通常是 ~/Desktop/05月发票汇总.xlsx), output_path (保存的docx路径).
+9) fallback — 复杂 GUI 任务、多步操作、视觉识别。
 
 输出格式（严格）：
-{"skill":"file_organizer","args":{"source_dir":"~/Desktop","target_folder_name":"4月汇总","glob_pattern":"Screenshot*.png"}}
-{"skill":"excel_writer","args":{"target_path":"~/Desktop/report.xlsx","data":{"header":["日期","项目","金额"],"rows":[...]}}}
-{"skill":"word_writer","args":{"target_path":"~/Desktop/report.docx","data":{"title":"标题","sections":[...]}}}
-{"skill":"fallback"}
+{{"skill":"file_organizer","args":{{"source_dir":"~/Desktop/05月投递箱","target_folder_name":"05月报销","glob_pattern":"*"}}}}
+{{"skill":"excel_writer","args":{{"target_path":"~/Desktop/report.xlsx","data":{{"header":["日期","项目","金额"],"rows":[...]}}}}}}
+{{"skill":"invoice_summarizer","args":{{"source_dir":"~/Desktop/05月投递箱","output_path":"~/Desktop/05月发票汇总.xlsx"}}}}
+{{"skill":"financial_reporter","args":{{"excel_path":"~/Desktop/05月发票汇总.xlsx","output_path":"~/Desktop/财务分析报告.docx"}}}}
+{{"skill":"fallback"}}
 
 open_app 的 app 字段必须提取用户提到的准确名称（中英文皆可），不要自己乱翻译。
 calculator 的 expression 里把运算写成一行表达式。
@@ -93,18 +102,63 @@ def _normalize_route(raw: dict[str, Any]) -> dict[str, Any]:
         skill = "excel_writer"
     elif skill in ("word", "word_writer", "doc", "docx"):
         skill = "word_writer"
-    elif skill not in ("calculator", "open_app", "send_wechat", "local_ask", "file_organizer", "excel_writer", "word_writer"):
+    elif skill in ("invoice", "invoice_summarizer", "summarizer"):
+        skill = "invoice_summarizer"
+    elif skill in ("financial", "report", "financial_reporter", "finance"):
+        skill = "financial_reporter"
+    elif skill not in ("calculator", "open_app", "send_wechat", "local_ask", "file_organizer", "excel_writer", "word_writer", "invoice_summarizer", "financial_reporter"):
         skill = "fallback"
 
     args = raw.get("args")
     if not isinstance(args, dict):
         args = {}
 
+    # 修正路径中的占位符用户名 (e.g. /Users/yourname -> /Users/real_user)
+    real_home = _REAL_HOME
+    for key in ("source_dir", "target_path", "excel_path", "output_path"):
+        if key in args and isinstance(args[key], str):
+            path_val = args[key]
+            # Replace any /Users/ANYTHING/ prefix with real home
+            import re as _re
+            path_val = _re.sub(r'^/Users/[^/]+/', real_home.rstrip('/') + '/', path_val)
+            # Also expand ~ to real home (in case it wasn't already)
+            path_val = path_val.replace('~', real_home)
+            args[key] = path_val
+
     # 返回归一化后的数据
     if skill == "fallback":
         return {"skill": "fallback"}
     
     return {"skill": skill, "args": args}
+
+
+def _get_relevant_memories(query: str, limit: int = 3) -> str:
+    """从本地 SQLite 数据库中检索相关记忆。"""
+    import sqlite3
+    db_path = Path.home() / ".ninetail-fox" / "conversations.sqlite"
+    if not db_path.exists():
+        return ""
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        # 简单的关键词模糊匹配（生产环境建议使用向量搜索）
+        keywords = [k for k in re.split(r'\s+', query) if len(k) > 1]
+        if not keywords:
+            cursor = conn.execute("SELECT content FROM conversation_log WHERE role='user' ORDER BY timestamp DESC LIMIT ?", (limit,))
+        else:
+            where_clause = " OR ".join(["content LIKE ?"] * len(keywords))
+            params = [f"%{k}%" for k in keywords] + [limit]
+            cursor = conn.execute(f"SELECT content FROM conversation_log WHERE role='user' AND ({where_clause}) ORDER BY timestamp DESC LIMIT ?", params)
+        
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return ""
+        mem_text = "\n".join([f"- {row['content']}" for row in rows])
+        return f"\n相关历史记忆：\n{mem_text}\n"
+    except Exception as e:
+        logger.warning(f"检索记忆失败: {e}")
+        return ""
 
 
 def _default_model(client: OpenAI) -> str | None:
@@ -142,10 +196,15 @@ def route_task(
         raise ValueError(
             "请设置环境变量 FOX_LOCAL_LLM_MODEL，或确保本机 API 支持 GET /v1/models 且至少有一个模型。"
         )
+    
+    # 注入记忆
+    memory_context = _get_relevant_memories(user_task)
+    full_prompt = _build_system_prompt() + memory_context
+
     completion = client.chat.completions.create(
         model=use_model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": full_prompt},
             {"role": "user", "content": user_task.strip()},
         ],
         temperature=0.0,
