@@ -27,9 +27,9 @@ try:
 except ImportError as e:  # pragma: no cover
     raise ImportError("local_router requires the 'openai' package") from e
 
-# 默认 LM Studio；Ollama OpenAI 兼容层一般为 http://127.0.0.1:11434/v1
-_DEFAULT_BASE = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:1234/v1")
-_DEFAULT_KEY = os.environ.get("FOX_LOCAL_LLM_API_KEY", "lm-studio")
+# 优先使用专门的路由器端点（8001），否则回退到通用端点（8000）
+_DEFAULT_BASE = os.environ.get("FOX_ROUTER_LLM_BASE_URL", os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:8001/v1"))
+_DEFAULT_KEY = os.environ.get("FOX_LOCAL_LLM_API_KEY", "not-needed")
 
 _REAL_DESKTOP = str(Path.home() / "Desktop")
 _REAL_HOME = str(Path.home())
