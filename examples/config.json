@@ -40,7 +40,7 @@
     "supports_tool_calling": false
   },
   "agent": {
-    "task": "\"在微信里搜索联系人小花仔，发送：没有问题了。您好，我是孙先生的机器人助手。\"",
+    "task": "\"\u5728\u5fae\u4fe1\u91cc\u641c\u7d22\u8054\u7cfb\u4eba\u5c0f\u82b1\u4ed4\uff0c\u53d1\u9001\uff1a\u6ca1\u6709\u95ee\u9898\u4e86\u3002\u60a8\u597d\uff0c\u6211\u662f\u5b59\u5148\u751f\u7684\u673a\u5668\u4eba\u52a9\u624b\u3002\"",
     "memory_budget_tokens": 8000,
     "summary_memory_budget_tokens": 32000,
     "use_ui": false,
