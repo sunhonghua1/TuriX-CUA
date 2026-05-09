@@ -66,7 +66,7 @@ def run(query: str) -> int:
         print(f"  {i}. 【{title}】 {body_clean}")
 
     # 复制结果到剪贴板
-    clipboard_text = "\n\n".join(notes)
+    clipboard_text = "\n\n".join(notes) if notes else f"未找到包含 '{query}' 的笔记。"
     try:
         pbcopy = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
         pbcopy.communicate(clipboard_text.encode("utf-8"))
@@ -74,6 +74,7 @@ def run(query: str) -> int:
     except Exception:
         pass
 
+    print(f"[notes_search] 💡 {clipboard_text}")
     return 0
 
 

@@ -24,47 +24,43 @@ def _screenshot_to_file() -> str:
 def _ocr_image(image_path: str, lang: str = "zh-Hans") -> str:
     """
     用 macOS Vision.framework 做 OCR。
-    通过 Swift 一镜到底脚本调用 VNRecognizeTextRequest。
+    同时开启中英文识别。
     """
     swift_code = r"""
 import Vision
+import AppKit
 import Foundation
 
 let imagePath = CommandLine.arguments[1]
 let lang = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "zh-Hans"
 
-guard let imageData = FileManager.default.contents(atPath: imagePath),
-      let image = NSImage(contentsOfFile: imagePath) else {
-    fputs("ERROR: Cannot load image", stderr)
-    exit(1)
-}
-
-guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-    fputs("ERROR: Cannot get CGImage", stderr)
+guard let image = NSImage(contentsOfFile: imagePath),
+      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
     exit(1)
 }
 
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
-request.recognitionLanguages = [lang]
+// 同时开启中英文识别，提高代码和混合文本的成功率
+request.recognitionLanguages = [lang, "en-US"]
 request.usesLanguageCorrection = true
 
 let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
 try? handler.perform([request])
 
-guard let observations = request.results, !observations.isEmpty else {
-    print("")
+guard let observations = request.results else {
     exit(0)
 }
 
-let lines = observations.map { $0.topCandidates(1).first?.string ?? "" }
+let lines = observations.compactMap { $0.topCandidates(1).first?.string }
 print(lines.joined(separator: "\n"))
 """
-    # 写临时 swift 文件
-    swift_tmp = tempfile.mktemp(suffix=".swift")
-    Path(swift_tmp).write_text(swift_code, encoding="utf-8")
-
+    # 使用唯一的临时文件
+    fd, swift_tmp = tempfile.mkstemp(suffix=".swift")
     try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(swift_code)
+
         res = subprocess.run(
             ["swift", swift_tmp, image_path, lang],
             capture_output=True, text=True, timeout=30,
@@ -75,7 +71,7 @@ print(lines.joined(separator: "\n"))
         return ""
     finally:
         try:
-            Path(swift_tmp).unlink(missing_ok=True)
+            os.unlink(swift_tmp)
         except Exception:
             pass
 
@@ -136,6 +132,12 @@ def run(image_path: str, action: str = "ocr") -> int:
     print(f"[ocr_translate] 🔍 识别文字中: {image_path}")
     ocr_text = _ocr_image(image_path)
     if not ocr_text:
+        # 重试一次：有时 Vision 引擎启动慢
+        import time
+        time.sleep(0.5)
+        ocr_text = _ocr_image(image_path)
+    
+    if not ocr_text:
         print("[ocr_translate] ⚠️ 未识别到文字")
         ocr_text = ""
 
@@ -161,6 +163,7 @@ def run(image_path: str, action: str = "ocr") -> int:
     except Exception:
         pass
 
+    print(f"[ocr_translate] 💡 {result}")
     print(f"[ocr_translate] ✅ 完成")
 
     # 清理临时截图

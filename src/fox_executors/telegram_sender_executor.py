@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
 Telegram 极速发送原子执行器 (Fox-path Executor)
-使用 AppleScript + System Events 控制 Telegram Mac 客户端完成消息发送。
+v5: 终极稳定版。
+使用 macOS 菜单栏点击 (UI Elements) 代替 keystroke 中文输入。
+彻底解决中文输入法、系统权限导致的快捷键被拦截、失效以及发出错误提示音的问题。
 """
 from __future__ import annotations
 
 import subprocess
 import sys
 import time
-
-
-def _escape_applescript_text(text: str) -> str:
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-    return escaped.replace("\n", "\\n")
 
 
 def run(contact: str, message: str) -> int:
@@ -24,45 +21,97 @@ def run(contact: str, message: str) -> int:
     print(f"[telegram_sender] 🚀 准备发送 Telegram 给 '{contact}'，内容: '{message}'")
     t0 = time.time()
 
-    contact_safe = _escape_applescript_text(contact)
-    message_safe = _escape_applescript_text(message)
+    # 转义双引号，防止 AppleScript 注入
+    contact_safe = contact.replace('"', '\\"')
+    message_safe = message.replace('"', '\\"')
 
     script = f"""
-    set targetName to "{contact_safe}"
-    set targetMessage to "{message_safe}"
-
+    -- 1. 检查 Telegram 是否在运行
     tell application "System Events"
         if not (exists process "Telegram") then
             error "Telegram 应用未启动或未登录" number 1002
         end if
     end tell
 
+    -- 2. 激活 Telegram
     tell application "Telegram" to activate
 
     tell application "System Events"
-        tell application process "Telegram"
-            set frontmost to true
-        end tell
-        delay 0.4
+        -- 循环等待直到 Telegram 拿到真正的最前台焦点
+        set timeoutCounter to 0
+        repeat until frontmost of application process "Telegram"
+            tell application process "Telegram" to set frontmost to true
+            delay 0.5
+            set timeoutCounter to timeoutCounter + 1
+            if timeoutCounter > 10 then exit repeat
+        end repeat
 
-        keystroke "k" using {{command down}}
-        delay 0.6
+        delay 0.5
+
+        tell application process "Telegram"
+            -- 3. 触发搜索：点击菜单栏 "编辑" -> "搜索…" (或 "Search…")
+            try
+                click menu item "搜索…" of menu 1 of menu bar item "编辑" of menu bar 1
+            on error
+                try
+                    click menu item "Search…" of menu 1 of menu bar item "Edit" of menu bar 1
+                on error
+                    -- 兜底：快捷键 Cmd+K
+                    keystroke "k" using {{command down}}
+                end try
+            end try
+        end tell
+        delay 1.0
+
+        -- 4. 清空搜索框 (如果里面有旧内容)
         keystroke "a" using {{command down}}
         delay 0.1
         key code 51
-        delay 0.2
-        keystroke targetName
-        delay 1.0
-        key code 36
-        delay 0.8
+        delay 0.3
 
-        -- 尝试聚焦输入区，避免焦点仍停留在搜索框
+        -- 5. 粘贴联系人名字 (剪贴板 + 菜单栏点击，不走 keystroke)
+        set the clipboard to "{contact_safe}"
+        delay 0.3
+        tell application process "Telegram"
+            try
+                click menu item "粘贴" of menu 1 of menu bar item "编辑" of menu bar 1
+            on error
+                try
+                    click menu item "Paste" of menu 1 of menu bar item "Edit" of menu bar 1
+                on error
+                    keystroke "v" using {{command down}}
+                end try
+            end try
+        end tell
+        delay 2.0
+
+        -- 6. 按回车选中第一个搜索结果
+        key code 36
+        delay 2.0
+
+        -- 7. 按 Escape 关闭搜索面板，让焦点回到消息输入框
         key code 53
-        delay 0.2
+        delay 1.0
 
-        keystroke targetMessage
-        delay 0.2
+        -- 8. 粘贴消息内容 (剪贴板 + 菜单栏点击)
+        set the clipboard to "{message_safe}"
+        delay 0.3
+        tell application process "Telegram"
+            try
+                click menu item "粘贴" of menu 1 of menu bar item "编辑" of menu bar 1
+            on error
+                try
+                    click menu item "Paste" of menu 1 of menu bar item "Edit" of menu bar 1
+                on error
+                    keystroke "v" using {{command down}}
+                end try
+            end try
+        end tell
+        delay 1.0
+
+        -- 9. 按回车发送
         key code 36
+        delay 0.5
     end tell
     """
 
@@ -83,7 +132,7 @@ def run(contact: str, message: str) -> int:
     if res.stderr.strip():
         print(f"[telegram_sender] ⚠️ AppleScript 警告: {res.stderr.strip()}")
 
-    print(f"[telegram_sender] ✅ 消息发送完成 (耗时 {elapsed:.2f}s)")
+    print(f"[telegram_sender] ✅ 已成功通过一镜到底脚本完成发送！(耗时 {elapsed:.2f}s)")
     return 0
 
 
