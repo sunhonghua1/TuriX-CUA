@@ -43,8 +43,15 @@ def generate_report(excel_path, output_path):
         
         # 2. 调用 26B 模型进行深度分析
         _base_url = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:8000/v1")
-        _model = os.environ.get("FOX_LOCAL_LLM_MODEL", "gemma-4-26b")
         client = OpenAI(base_url=_base_url, api_key="not-needed")
+        _model = os.environ.get("FOX_LOCAL_LLM_MODEL", "gemma-4-26b")
+        try:
+            available_models = client.models.list().data
+            if available_models and _model not in [m.id for m in available_models]:
+                _model = available_models[0].id
+                print(f"[financial_reporter] 🔄 自动切换模型至可用模型: {_model}")
+        except Exception:
+            pass
         
         prompt = f"""
 你是一名资深财务分析师。请根据以下提取的发票汇总数据，写一份专业、简练的财务分析报告摘要。

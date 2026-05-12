@@ -36,10 +36,16 @@ def run_ppt_analysis(excel_path, output_path):
         max_spend = amounts.max()
         top_vendor = df['销售方'].value_counts().idxmax() if '销售方' in df.columns else "未知"
 
-        # 3. 让 26B 策划 PPT 内容
+        # 3. 让本地 LLM 策划 PPT 内容（自动探测当前加载的模型）
         _base_url = os.environ.get("FOX_LOCAL_LLM_BASE_URL", "http://127.0.0.1:8000/v1")
-        _model = os.environ.get("FOX_LOCAL_LLM_MODEL", "gemma-4-26b")
         client = OpenAI(base_url=_base_url, api_key="not-needed")
+        _model = os.environ.get("FOX_LOCAL_LLM_MODEL", "")
+        if not _model:
+            try:
+                _model = client.models.list().data[0].id
+                print(f"[ppt_analyzer] 🔄 自动检测到本地模型: {_model}")
+            except Exception:
+                _model = "gemma-4-26b"  # 实在探测不到才用旧默认值
 
         prompt = f"""
 你是一名资深商业演示专家。请为一份财务报销分析 PPT 策划内容。

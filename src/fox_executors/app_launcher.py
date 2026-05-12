@@ -25,19 +25,32 @@ def _wait_for_frontmost(bundle_id: str, timeout: float = 5.0) -> bool:
 
 # 常用别名 -> bundle id（可扩展）
 APP_ALIASES: dict[str, str] = {
-    "safari": "com.apple.Safari",
-    "chrome": "com.google.Chrome",
-    "firefox": "org.mozilla.firefox",
-    "wechat": "com.tencent.xinWeChat",
-    "weixin": "com.tencent.xinWeChat",
-    "calculator": "com.apple.calculator",
-    "terminal": "com.apple.Terminal",
-    "iterm": "com.googlecode.iterm2",
-    "notes": "com.apple.Notes",
-    "mail": "com.apple.mail",
-    "music": "com.apple.Music",
-    "finder": "com.apple.finder",
-    "vscode": "com.microsoft.VSCode",
+    "safari":      "com.apple.Safari",
+    "chrome":      "com.google.Chrome",
+    "firefox":     "org.mozilla.firefox",
+    "wechat":      "com.tencent.xinWeChat",
+    "weixin":      "com.tencent.xinWeChat",
+    "calculator":  "com.apple.calculator",
+    "terminal":    "com.apple.Terminal",
+    "iterm":       "com.googlecode.iterm2",
+    "notes":       "com.apple.Notes",
+    "mail":        "com.apple.mail",
+    "music":       "com.apple.Music",
+    "finder":      "com.apple.finder",
+    "vscode":      "com.microsoft.VSCode",
+    "chatgpt":     "com.openai.chat",
+    "telegram":    "ru.keepcoder.Telegram",
+    "whatsapp":    "net.whatsapp.WhatsApp",
+    "cursor":      "com.todesktop.230313mzl4w4u92",
+}
+
+# 慢启动 App：进程已启动但需要更长时间才能到前台，适当放宽超时
+SLOW_START_BUNDLES: set[str] = {
+    "com.openai.chat",        # ChatGPT
+    "ru.keepcoder.Telegram",  # Telegram
+    "net.whatsapp.WhatsApp",  # WhatsApp
+    "com.tencent.xinWeChat",  # WeChat
+    "com.todesktop.230313mzl4w4u92",  # Cursor
 }
 
 
@@ -62,12 +75,16 @@ def resolve_bundle_id(name: str) -> str | None:
 def launch(app_token: str, *, wait_timeout: float = 8.0) -> bool:
     """
     启动或激活应用并等待其成为最前端。
-    app_token: 别名（safari）、本地化名称（备忘录）或完整 bundle id。
+    慢启动 App（ChatGPT/Telegram 等）超时不算失败，只警告。
     """
     bid = resolve_bundle_id(app_token)
     if not bid:
         print(f"[app_launcher] 未找到应用: {app_token}", file=sys.stderr)
         return False
+
+    # 慢启动 App 给予更长超时
+    if bid in SLOW_START_BUNDLES and wait_timeout < 18.0:
+        wait_timeout = 18.0
 
     subprocess.run(["open", "-b", bid], check=True)
     print(f"[app_launcher] open -b {bid}")
@@ -75,6 +92,13 @@ def launch(app_token: str, *, wait_timeout: float = 8.0) -> bool:
     if ok:
         print("[app_launcher] 应用已处于最前端")
     else:
+        # 检查进程是否存在（App 启动了但还没到前台）
+        running = subprocess.run(
+            ["pgrep", "-f", bid], capture_output=True, text=True
+        ).returncode == 0
+        if running or bid in SLOW_START_BUNDLES:
+            print(f"[app_launcher] 应用已启动（慢启动模式，还未到最前端）")
+            return True  # 不计入失败
         print("[app_launcher] 超时：应用未在最前端", file=sys.stderr)
     return ok
 

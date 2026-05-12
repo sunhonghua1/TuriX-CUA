@@ -1,55 +1,41 @@
 {
   "logging_level": "DEBUG",
   "output_dir": ".turix_tmp",
+  "brain_enable_thinking": false,
   "brain_llm": {
-    "provider": "turix",
-    "model_name": "/Users/models/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit",
-    "api_key": "not-needed",
-    "base_url": "http://127.0.0.1:8000/v1",
-    "supports_response_format": false,
-    "supports_tool_calling": false
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ss-v1-a9a9af132b51a4208ece295aeb64c0b9df40fc0d85b491fab024d0fdabbb453e",
+    "base_url": "https://zenmux.ai/api/v1"
   },
   "actor_llm": {
-    "provider": "turix",
-    "model_name": "/Users/models/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit",
-    "api_key": "not-needed",
-    "base_url": "http://127.0.0.1:8000/v1",
-    "supports_response_format": false
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ss-v1-a9a9af132b51a4208ece295aeb64c0b9df40fc0d85b491fab024d0fdabbb453e",
+    "base_url": "https://zenmux.ai/api/v1"
   },
   "planner_llm": {
-    "provider": "turix",
-    "model_name": "/Users/models/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit",
-    "api_key": "not-needed",
-    "base_url": "http://127.0.0.1:8000/v1",
-    "supports_response_format": false,
-    "supports_tool_calling": false
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ss-v1-a9a9af132b51a4208ece295aeb64c0b9df40fc0d85b491fab024d0fdabbb453e",
+    "base_url": "https://zenmux.ai/api/v1"
   },
   "memory_llm": {
-    "provider": "turix",
-    "model_name": "/Users/models/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit",
-    "api_key": "not-needed",
-    "base_url": "http://127.0.0.1:8000/v1",
-    "supports_response_format": false
-  },
-  "critic_llm": {
-    "provider": "turix",
-    "model_name": "/Users/models/Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit",
-    "api_key": "not-needed",
-    "base_url": "http://127.0.0.1:8000/v1",
-    "supports_response_format": false,
-    "supports_tool_calling": false
+    "provider": "deepseek",
+    "model_name": "gemini-3.1-flash-lite-preview",
+    "api_key": "sk-ss-v1-a9a9af132b51a4208ece295aeb64c0b9df40fc0d85b491fab024d0fdabbb453e",
+    "base_url": "https://zenmux.ai/api/v1"
   },
   "agent": {
-    "task": "\"\u5728\u5fae\u4fe1\u91cc\u641c\u7d22\u8054\u7cfb\u4eba\u5c0f\u82b1\u4ed4\uff0c\u53d1\u9001\uff1a\u6ca1\u6709\u95ee\u9898\u4e86\u3002\u60a8\u597d\uff0c\u6211\u662f\u5b59\u5148\u751f\u7684\u673a\u5668\u4eba\u52a9\u624b\u3002\"",
-    "memory_budget_tokens": 8000,
-    "summary_memory_budget_tokens": 32000,
+    "task": "“帮我打开 Safari，进入百度首页。”",
+    "memory_budget_tokens": 2000,
+    "summary_memory_budget_tokens": 8000,
     "use_ui": false,
     "use_search": true,
     "use_skills": true,
-    "skills_dir": "/Users/github/TuriX-CUA/.agent/skills",
+    "skills_dir": "skills",
     "skills_max_chars": 4000,
-    "use_plan": true,
-    "use_critic": true,
+    "use_plan": false,
     "max_actions_per_step": 5,
     "max_steps": 100,
     "force_stop_hotkey": "command+shift+2",
